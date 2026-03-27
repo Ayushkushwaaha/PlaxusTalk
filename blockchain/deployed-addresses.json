@@ -1,0 +1,16 @@
+{
+  "network": "mumbai",
+  "chainId": 80001,
+  "deployedAt": "2026-03-26T09:16:37.352Z",
+  "deployer": "0xb7ab3a8d50a03c61ac85d8F2D1275543c1fEaEe0",
+  "contracts": {
+    "PlaxusIdentity": "0x3f912556b359b84151050Ee74a0fBdb47Cfbc822",
+    "PlaxusCallRegistry": "0x1D7611608834C3bB6f938Cf326d577670c291443",
+    "PlaxusTips": "0x0b051FB226E2A0ccC691414e7b1d45b62674c495"
+  },
+  "polygonscan": {
+    "PlaxusIdentity": "https://mumbai.polygonscan.com/address/0x3f912556b359b84151050Ee74a0fBdb47Cfbc822",
+    "PlaxusCallRegistry": "https://mumbai.polygonscan.com/address/0x1D7611608834C3bB6f938Cf326d577670c291443",
+    "PlaxusTips": "https://mumbai.polygonscan.com/address/0x0b051FB226E2A0ccC691414e7b1d45b62674c495"
+  }
+}

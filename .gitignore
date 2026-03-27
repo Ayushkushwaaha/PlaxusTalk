@@ -1,0 +1,23 @@
+# Node modules
+node_modules/
+blockchain/node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Environment files
+.env
+backend/.env
+blockchain/.env
+
+# Build files
+frontend/dist/
+blockchain/artifacts/
+blockchain/cache/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
