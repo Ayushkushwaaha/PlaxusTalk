@@ -3,11 +3,7 @@ import { useWallet } from '../hooks/useWallet';
 import { useContracts } from '../hooks/useContracts';
 
 // Load contract addresses if deployed
-let CONTRACT_ADDRESSES = null;
-try {
-  const mod = await import('../lib/contracts.js').catch(() => null);
-  if (mod) CONTRACT_ADDRESSES = mod.CONTRACT_ADDRESSES;
-} catch { }
+import { CONTRACT_ADDRESSES } from '../lib/contracts.js';
 
 function PolygonIcon() {
   return (
