@@ -14,10 +14,27 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@plaxustalk.com';
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: process.env.FRONTEND_URL || '*', methods: ['GET', 'POST'] },
+  cors: {
+    origin: [
+      process.env.FRONTEND_URL || '*',
+      'https://plaxustalks.vercel.app',
+      'https://plaxustalks-git-main-ayushkushwaahas-projects.vercel.app',
+      'http://localhost:5173',
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
 });
 
-app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
+app.use(cors({
+  origin: [
+    process.env.FRONTEND_URL || '*',
+    'https://plaxustalks.vercel.app',
+    'https://plaxustalks-git-main-ayushkushwaahas-projects.vercel.app',
+    'http://localhost:5173',
+  ],
+  credentials: true,
+}));
 app.use(express.json());
 
 // ─── MongoDB ──────────────────────────────────────────────────────────────────
