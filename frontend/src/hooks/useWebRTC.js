@@ -3,12 +3,8 @@ import { getSocket } from '../lib/socket';
 
 const ICE_SERVERS = {
   iceServers: [
-    {
-      urls: 'stun:stun.l.google.com:19302',
-    },
-    {
-      urls: 'stun:stun.relay.metered.ca:80',
-    },
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
     {
       urls: 'turn:global.relay.metered.ca:80',
       username: 'b1ddb764e1d0b66a7267de87',
@@ -32,22 +28,21 @@ const ICE_SERVERS = {
   ],
 };
 
-
 export function useWebRTC(roomId) {
-  const localVideoRef = useRef(null);
+  const localVideoRef  = useRef(null);
   const remoteVideoRef = useRef(null);
-  const pcRef = useRef(null);
+  const pcRef          = useRef(null);
   const localStreamRef = useRef(null);
+  const isInitiatorRef = useRef(false);
 
   const [connectionState, setConnectionState] = useState('idle');
-  // idle | connecting | connected | disconnected | failed
-  const [iceState, setIceState] = useState('new');
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
-  const [latency, setLatency] = useState(null);
-  const [isP2P, setIsP2P] = useState(false);
-  const [peerCount, setPeerCount] = useState(0);
-  const [callId, setCallId] = useState(null);
+  const [iceState,        setIceState]        = useState('new');
+  const [isAudioMuted,    setIsAudioMuted]    = useState(false);
+  const [isVideoOff,      setIsVideoOff]      = useState(false);
+  const [latency,         setLatency]         = useState(null);
+  const [isP2P,           setIsP2P]           = useState(false);
+  const [peerCount,       setPeerCount]       = useState(0);
+  const [callId,          setCallId]          = useState(null);
 
   const socket = getSocket();
 
@@ -67,26 +62,24 @@ export function useWebRTC(roomId) {
       setIceState(pc.iceConnectionState);
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         setConnectionState('connected');
-        // Detect P2P via candidate type
-        pc.getStats().then((stats) => {
-          stats.forEach((report) => {
-            if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-              setIsP2P(report.localCandidateId !== undefined);
-            }
-          });
-        });
+        setIsP2P(true);
       }
-      if (pc.iceConnectionState === 'failed') setConnectionState('failed');
+      if (pc.iceConnectionState === 'failed')       setConnectionState('failed');
       if (pc.iceConnectionState === 'disconnected') setConnectionState('disconnected');
     };
 
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected')    setConnectionState('connected');
+      if (pc.connectionState === 'failed')       setConnectionState('failed');
+      if (pc.connectionState === 'disconnected') setConnectionState('disconnected');
+    };
+
     pc.ontrack = (event) => {
-      if (remoteVideoRef.current) {
+      if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0];
       }
     };
 
-    // Attach local tracks
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStreamRef.current);
@@ -103,9 +96,7 @@ export function useWebRTC(roomId) {
         audio: true,
       });
       localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       return stream;
     } catch (err) {
       console.error('getUserMedia error:', err);
@@ -115,51 +106,68 @@ export function useWebRTC(roomId) {
   }, []);
 
   const joinRoom = useCallback(
-    async (wallet) => {
+    async (wallet, userId, userName, password) => {
       await startLocalStream();
       socket.connect();
-      socket.emit('join-room', { roomId, wallet });
+      socket.emit('join-room', { roomId, wallet, userId, userName, password });
       setConnectionState('connecting');
     },
     [roomId, socket, startLocalStream]
   );
 
-  // Socket event handlers
   useEffect(() => {
-    const onJoined = async ({ isInitiator, peerCount: count, callId: cid }) => {
+    const onJoined = ({ isInitiator, peerCount: count, callId: cid }) => {
       setPeerCount(count);
       setCallId(cid);
-      if (!isInitiator) return; // wait for peer to join before creating offer
+      isInitiatorRef.current = isInitiator;
     };
 
     const onPeerJoined = async ({ userCount }) => {
       setPeerCount(userCount);
-      if (userCount === 2) {
-        // Create offer only if we were first (isInitiator)
-        const pc = createPeerConnection();
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('offer', { roomId, offer });
+      if (userCount === 2 && isInitiatorRef.current) {
+        try {
+          const pc = createPeerConnection();
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true,
+          });
+          await pc.setLocalDescription(offer);
+          socket.emit('offer', { roomId, offer });
+        } catch (err) {
+          console.error('Offer error:', err);
+        }
       }
     };
 
     const onOffer = async ({ offer }) => {
-      const pc = createPeerConnection();
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit('answer', { roomId, answer });
+      try {
+        const pc = createPeerConnection();
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('answer', { roomId, answer });
+      } catch (err) {
+        console.error('Answer error:', err);
+      }
     };
 
     const onAnswer = async ({ answer }) => {
-      await pcRef.current?.setRemoteDescription(new RTCSessionDescription(answer));
+      try {
+        if (pcRef.current) {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+        }
+      } catch (err) {
+        console.error('setRemoteDescription error:', err);
+      }
     };
 
     const onIceCandidate = async ({ candidate }) => {
       try {
-        await pcRef.current?.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {
-        console.error('ICE candidate error:', e);
+        if (pcRef.current && candidate) {
+          await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      } catch (err) {
+        console.error('ICE candidate error:', err);
       }
     };
 
@@ -169,47 +177,39 @@ export function useWebRTC(roomId) {
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     };
 
-    const onRoomFull = () => setConnectionState('failed');
+    const onRoomFull      = () => setConnectionState('failed');
+    const onLatencyUpdate = ({ latency: l, p2p }) => { setLatency(l); setIsP2P(p2p); };
 
-    const onLatencyUpdate = ({ latency: l, p2p }) => {
-      setLatency(l);
-      setIsP2P(p2p);
-    };
-
-    socket.on('joined-room', onJoined);
-    socket.on('peer-joined', onPeerJoined);
-    socket.on('offer', onOffer);
-    socket.on('answer', onAnswer);
-    socket.on('ice-candidate', onIceCandidate);
-    socket.on('peer-left', onPeerLeft);
-    socket.on('room-full', onRoomFull);
+    socket.on('joined-room',    onJoined);
+    socket.on('peer-joined',    onPeerJoined);
+    socket.on('offer',          onOffer);
+    socket.on('answer',         onAnswer);
+    socket.on('ice-candidate',  onIceCandidate);
+    socket.on('peer-left',      onPeerLeft);
+    socket.on('room-full',      onRoomFull);
     socket.on('latency-update', onLatencyUpdate);
 
     return () => {
-      socket.off('joined-room', onJoined);
-      socket.off('peer-joined', onPeerJoined);
-      socket.off('offer', onOffer);
-      socket.off('answer', onAnswer);
-      socket.off('ice-candidate', onIceCandidate);
-      socket.off('peer-left', onPeerLeft);
-      socket.off('room-full', onRoomFull);
+      socket.off('joined-room',    onJoined);
+      socket.off('peer-joined',    onPeerJoined);
+      socket.off('offer',          onOffer);
+      socket.off('answer',         onAnswer);
+      socket.off('ice-candidate',  onIceCandidate);
+      socket.off('peer-left',      onPeerLeft);
+      socket.off('room-full',      onRoomFull);
       socket.off('latency-update', onLatencyUpdate);
     };
   }, [roomId, socket, createPeerConnection]);
 
   const toggleAudio = useCallback(() => {
     if (!localStreamRef.current) return;
-    localStreamRef.current.getAudioTracks().forEach((t) => {
-      t.enabled = !t.enabled;
-    });
+    localStreamRef.current.getAudioTracks().forEach((t) => { t.enabled = !t.enabled; });
     setIsAudioMuted((m) => !m);
   }, []);
 
   const toggleVideo = useCallback(() => {
     if (!localStreamRef.current) return;
-    localStreamRef.current.getVideoTracks().forEach((t) => {
-      t.enabled = !t.enabled;
-    });
+    localStreamRef.current.getVideoTracks().forEach((t) => { t.enabled = !t.enabled; });
     setIsVideoOff((v) => !v);
   }, []);
 
@@ -221,19 +221,8 @@ export function useWebRTC(roomId) {
   }, [socket]);
 
   return {
-    localVideoRef,
-    remoteVideoRef,
-    connectionState,
-    iceState,
-    isAudioMuted,
-    isVideoOff,
-    latency,
-    isP2P,
-    peerCount,
-    callId,
-    joinRoom,
-    toggleAudio,
-    toggleVideo,
-    hangUp,
+    localVideoRef, remoteVideoRef, connectionState, iceState,
+    isAudioMuted, isVideoOff, latency, isP2P, peerCount, callId,
+    localStreamRef, pcRef, joinRoom, toggleAudio, toggleVideo, hangUp,
   };
 }
