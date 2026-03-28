@@ -52,18 +52,18 @@ export function useWallet() {
       setAddress(accounts[0]);
       setChainId(currentChain);
 
-      // Switch to Polygon Mumbai if needed
-      if (currentChain !== POLYGON_MUMBAI.chainId) {
+      // Switch to SEPOLIA if needed
+      if (currentChain !== SEPOLIA.chainId) {
         try {
           await window.ethereum.request({
             method: 'wallet_switchEthereumChain',
-            params: [{ chainId: POLYGON_MUMBAI.chainId }],
+            params: [{ chainId: SEPOLIA.chainId }],
           });
         } catch (switchErr) {
           if (switchErr.code === 4902) {
             await window.ethereum.request({
               method: 'wallet_addEthereumChain',
-              params: [POLYGON_MUMBAI],
+              params: [SEPOLIA],
             });
           }
         }
