@@ -3,28 +3,35 @@ import { getSocket } from '../lib/socket';
 
 const ICE_SERVERS = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
     {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
+      urls: 'stun:stun.l.google.com:19302',
     },
     {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
+      urls: 'stun:stun.relay.metered.ca:80',
     },
     {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
+      urls: 'turn:global.relay.metered.ca:80',
+      username: 'b1ddb764e1d0b66a7267de87',
+      credential: 'Z838/HM7L1qC+HDP',
+    },
+    {
+      urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+      username: 'b1ddb764e1d0b66a7267de87',
+      credential: 'Z838/HM7L1qC+HDP',
+    },
+    {
+      urls: 'turn:global.relay.metered.ca:443',
+      username: 'b1ddb764e1d0b66a7267de87',
+      credential: 'Z838/HM7L1qC+HDP',
+    },
+    {
+      urls: 'turns:global.relay.metered.ca:443?transport=tcp',
+      username: 'b1ddb764e1d0b66a7267de87',
+      credential: 'Z838/HM7L1qC+HDP',
     },
   ],
 };
+
 
 export function useWebRTC(roomId) {
   const localVideoRef = useRef(null);
