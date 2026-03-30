@@ -47,7 +47,7 @@ export default function ProfilePage() {
             <div className="absolute inset-0 border-2 border-accent rotate-45" />
             <div className="absolute inset-[4px] bg-accent rotate-45" />
           </div>
-          <span className="font-display text-accent text-base tracking-widest">PLAXUSTALK</span>
+          <span className="font-display text-accent text-base tracking-widest">PLEXUSTALK</span>
         </Link>
         <div className="flex items-center gap-4">
           <Link to="/profile/web3" className="font-display text-xs text-info border border-info/30 px-3 py-1 hover:bg-info/10 tracking-widest uppercase transition-colors">⬡ WEB3 PROFILE</Link>
@@ -73,7 +73,7 @@ export default function ProfilePage() {
           <div>
             <p className="font-display text-lg text-white">{user?.name}</p>
             <p className="font-body text-sm text-muted">{user?.email}</p>
-            <p className="font-display text-xs text-accent/60 tracking-widest mt-1">MEMBER · PLAXUSTALK</p>
+            <p className="font-display text-xs text-accent/60 tracking-widest mt-1">MEMBER · PLEXUSTALK</p>
           </div>
         </div>
 

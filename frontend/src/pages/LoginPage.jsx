@@ -45,7 +45,7 @@ export default function LoginPage() {
             <div className="absolute inset-0 border-2 border-accent rotate-45" />
             <div className="absolute inset-[4px] bg-accent rotate-45" />
           </div>
-          <span className="font-display text-accent text-base tracking-widest glow-accent-text">PLAXUSTALK</span>
+          <span className="font-display text-accent text-base tracking-widest glow-accent-text">PLEXUSTALK</span>
         </Link>
       </header>
 
@@ -59,7 +59,7 @@ export default function LoginPage() {
               SECURE ACCESS
             </div>
             <h1 className="font-display text-4xl text-white mb-2">SIGN IN</h1>
-            <p className="font-body text-muted text-sm">Welcome back to PlaxusTalk</p>
+            <p className="font-body text-muted text-sm">Welcome back to PlexusTalk</p>
           </div>
 
           {/* Form card */}

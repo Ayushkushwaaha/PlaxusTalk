@@ -63,7 +63,7 @@ export default function SignupPage() {
             <div className="absolute inset-0 border-2 border-accent rotate-45" />
             <div className="absolute inset-[4px] bg-accent rotate-45" />
           </div>
-          <span className="font-display text-accent text-base tracking-widest glow-accent-text">PLAXUSTALK</span>
+          <span className="font-display text-accent text-base tracking-widest glow-accent-text">PLEXUSTALK</span>
         </Link>
       </header>
 
@@ -77,7 +77,7 @@ export default function SignupPage() {
               NEW ACCOUNT
             </div>
             <h1 className="font-display text-4xl text-white mb-2">CREATE ACCOUNT</h1>
-            <p className="font-body text-muted text-sm">Join PlaxusTalk — sovereign P2P video</p>
+            <p className="font-body text-muted text-sm">Join PlexusTalk — sovereign P2P video</p>
           </div>
 
           {/* Form card */}

@@ -60,7 +60,7 @@ export default function HomePage() {
             <div className="absolute inset-0 border-2 border-accent rotate-45" />
             <div className="absolute inset-[4px] bg-accent rotate-45" />
           </div>
-          <span className="font-display text-accent text-lg tracking-widest glow-accent-text">PLAXUSTALK</span>
+          <span className="font-display text-accent text-lg tracking-widest glow-accent-text">PLEXUSTALK</span>
         </div>
 
         <nav className="flex items-center gap-4">
@@ -183,7 +183,7 @@ export default function HomePage() {
       </main>
 
       <footer className="relative z-10 border-t border-border px-6 py-4 flex items-center justify-between">
-        <span className="font-display text-xs text-muted/40 tracking-widest">PLAXUSTALK v2.0</span>
+        <span className="font-display text-xs text-muted/40 tracking-widest">PLEXUSTALK v2.0</span>
         <span className="font-display text-xs text-muted/40 tracking-widest">NO SERVERS · NO LOGS</span>
       </footer>
     </div>

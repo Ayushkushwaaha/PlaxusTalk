@@ -138,7 +138,7 @@ export default function RoomPage() {
       <header className="relative z-20 flex items-center justify-between px-4 md:px-6 py-4 border-b border-border">
         <div className="flex items-center gap-4">
           <button onClick={() => navigate('/')} className="font-display text-xs text-muted hover:text-white tracking-widest uppercase transition-colors">
-            ← PLAXUSTALK
+            ← PLEXUSTALK
           </button>
           <div className="h-4 w-px bg-border" />
           <div className="flex items-center gap-2">
