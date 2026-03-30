@@ -13,6 +13,8 @@ import CallHistoryPage from './pages/CallHistoryPage';
 import FriendsPage from './pages/FriendsPage';
 import AdminPage from './pages/AdminPage';
 import DecentralizedProfilePage from './pages/DecentralizedProfilePage';
+import GroupRoomPage from './pages/GroupRoomPage';
+
 
 export default function App() {
   return (
@@ -30,6 +32,8 @@ export default function App() {
             <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
             <Route path="/admin"   element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
             <Route path="*"        element={<Navigate to="/" replace />} />
+            <Route path="/group/:roomId" element={<ProtectedRoute><GroupRoomPage /></ProtectedRoute>
+} />
           </Routes>
           <NotificationBanner />
         </div>

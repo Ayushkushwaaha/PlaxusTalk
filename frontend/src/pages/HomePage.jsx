@@ -186,6 +186,21 @@ export default function HomePage() {
         <span className="font-display text-xs text-muted/40 tracking-widest">PLEXUSTALK v2.0</span>
         <span className="font-display text-xs text-muted/40 tracking-widest">NO SERVERS · NO LOGS</span>
       </footer>
+      <button
+  onClick={async () => {
+    const token = localStorage.getItem('pt_token');
+    const res = await fetch(`${BACKEND_URL}/api/rooms`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const { roomId } = await res.json();
+    navigate(`/group/${roomId}`);
+  }}
+  className="btn-secondary w-full flex items-center justify-center gap-2"
+>
+  👥 CREATE GROUP ROOM (UP TO 15)
+</button>
     </div>
   );
 }

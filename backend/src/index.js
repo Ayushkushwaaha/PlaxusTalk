@@ -496,6 +496,32 @@ app.delete('/api/admin/rooms/:roomId', auth, adminOnly, (req, res) => {
 app.get('/api/ipfs/status', (req, res) => {
   res.json({ configured: isPinataConfigured() });
 });
+const { AccessToken } = require('livekit-server-sdk');
+
+// Generate LiveKit token for a user to join a room
+app.post('/api/livekit/token', auth, async (req, res) => {
+  const { roomName, participantName } = req.body;
+  if (!roomName || !participantName) {
+    return res.status(400).json({ error: 'roomName and participantName required' });
+  }
+  try {
+    const at = new AccessToken(
+      process.env.LIVEKIT_API_KEY,
+      process.env.LIVEKIT_API_SECRET,
+      { identity: participantName }
+    );
+    at.addGrant({
+      roomJoin: true,
+      room: roomName,
+      canPublish: true,
+      canSubscribe: true,
+    });
+    const token = await at.toJwt();
+    res.json({ token, url: process.env.LIVEKIT_URL });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get('/health', (req, res) => res.json({ status: 'ok', rooms: rooms.size, users: onlineUsers.size }));
 
 // ─── IPFS Routes ──────────────────────────────────────────────────────────────
