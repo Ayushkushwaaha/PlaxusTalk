@@ -61,18 +61,9 @@ export default function WalletButton({ onWalletConnected, currentUser, roomId })
           {isConnecting ? (
             <><span className="w-3 h-3 border border-accent/50 border-t-accent rounded-full animate-spin" />CONNECTING...</>
           ) : !isInstalled ? (
-  ) : (
-  <>
-    <span className="text-warn">⚠</span> Install MetaMask
-    
-      href="https://metamask.io/download"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="font-display text-xs text-info underline ml-1"
-    >
-      Download
-    </a>
-  </>
+            <>
+            <span className="text-warn">⚠</span> NO METAMASK
+            </>
           ) : (
             <><PolygonIcon />CONNECT WALLET</>
           )}
