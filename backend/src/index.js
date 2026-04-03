@@ -385,6 +385,7 @@ app.get('/api/ipfs/status', auth, (req, res) => {
 
 // ─── Rooms ────────────────────────────────────────────────────────────────────
 const rooms = new Map();
+const groupRooms = new Map();
 const onlineUsers = new Map(); // userId → socketId
 
 function mockLatency() { return Math.floor(80 + Math.random() * 60); }
@@ -495,32 +496,6 @@ app.delete('/api/admin/rooms/:roomId', auth, adminOnly, (req, res) => {
 
 app.get('/api/ipfs/status', (req, res) => {
   res.json({ configured: isPinataConfigured() });
-});
-const { AccessToken } = require('livekit-server-sdk');
-
-// Generate LiveKit token for a user to join a room
-app.post('/api/livekit/token', auth, async (req, res) => {
-  const { roomName, participantName } = req.body;
-  if (!roomName || !participantName) {
-    return res.status(400).json({ error: 'roomName and participantName required' });
-  }
-  try {
-    const at = new AccessToken(
-      process.env.LIVEKIT_API_KEY,
-      process.env.LIVEKIT_API_SECRET,
-      { identity: participantName }
-    );
-    at.addGrant({
-      roomJoin: true,
-      room: roomName,
-      canPublish: true,
-      canSubscribe: true,
-    });
-    const token = await at.toJwt();
-    res.json({ token, url: process.env.LIVEKIT_URL });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 app.get('/health', (req, res) => res.json({ status: 'ok', rooms: rooms.size, users: onlineUsers.size }));
 
@@ -682,6 +657,51 @@ io.on('connection', (socket) => {
 
   socket.on('admit-peer',   ({ roomId, socketId }) => io.to(socketId).emit('waiting-admitted'));
   socket.on('reject-peer',  ({ roomId, socketId }) => io.to(socketId).emit('waiting-rejected'));
+// Group join
+socket.on('group-join', ({ roomId, userName }) => {
+  const id = roomId.toUpperCase();
+  if (!groupRooms.has(id)) groupRooms.set(id, []);
+  const room = groupRooms.get(id);
+
+  if (room.length >= 8) {
+    socket.emit('group-room-full');
+    return;
+  }
+
+  // Send existing peers to the new joiner
+  socket.emit('group-peers', { peers: room.map((p) => ({ socketId: p.socketId, name: p.userName })) });
+
+  // Add new peer to room
+  room.push({ socketId: socket.id, userName: userName || 'Guest' });
+  socket.join(id);
+
+  // Notify others
+  socket.to(id).emit('group-peer-joined', { socketId: socket.id, name: userName });
+
+  console.log(`👥 ${socket.id} joined group room ${id} (${room.length}/8)`);
+});
+
+// Group WebRTC signaling
+socket.on('group-offer', ({ roomId, to, offer }) => {
+  socket.to(to).emit('group-offer', { from: socket.id, offer });
+});
+
+socket.on('group-answer', ({ roomId, to, answer }) => {
+  socket.to(to).emit('group-answer', { from: socket.id, answer });
+});
+
+socket.on('group-ice', ({ roomId, to, candidate }) => {
+  socket.to(to).emit('group-ice', { from: socket.id, candidate });
+});
+
+socket.on('group-leave', ({ roomId }) => {
+  const id = roomId?.toUpperCase();
+  if (!id || !groupRooms.has(id)) return;
+  const room = groupRooms.get(id);
+  groupRooms.set(id, room.filter((p) => p.socketId !== socket.id));
+  socket.to(id).emit('group-peer-left', { socketId: socket.id });
+  if (groupRooms.get(id).length === 0) groupRooms.delete(id);
+});
 
   socket.on('disconnect', async () => {
     console.log(`❌ Disconnected: ${socket.id}`);

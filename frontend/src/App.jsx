@@ -15,7 +15,6 @@ import AdminPage from './pages/AdminPage';
 import DecentralizedProfilePage from './pages/DecentralizedProfilePage';
 import GroupRoomPage from './pages/GroupRoomPage';
 
-
 export default function App() {
   return (
     <ThemeProvider>
