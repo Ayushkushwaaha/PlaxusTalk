@@ -144,21 +144,6 @@ export default function HomePage() {
                     <><span className="w-4 h-4 border-2 border-void border-t-transparent rounded-full animate-spin" />GENERATING...</>
                   ) : 'CREATE SECURE ROOM'}
                 </button>
-                <button
-  onClick={async () => {
-    const token = localStorage.getItem('pt_token');
-    const res = await fetch(`${BACKEND_URL}/api/rooms`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    const { roomId } = await res.json();
-    navigate(`/group/${roomId}`);
-  }}
-  className="btn-secondary w-full flex items-center justify-center gap-2"
->
-  👥 CREATE GROUP ROOM (UP TO 8)
-</button>
                 <p className="font-display text-xs text-muted/60 text-center">E2E encrypted · Chat · Screen share · Recording</p>
               </div>
             ) : (
@@ -176,6 +161,27 @@ export default function HomePage() {
                 />
                 {joinError && <p className="font-display text-xs text-warn text-center">{joinError}</p>}
                 <button onClick={joinRoom} className="btn-secondary w-full">JOIN ROOM →</button>
+                <button
+  onClick={async () => {
+    try {
+      const token = localStorage.getItem('pt_token');
+      const res = await fetch(`${BACKEND_URL}/api/rooms`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      const roomId = data.roomId || Math.random().toString(36).slice(2, 10).toUpperCase();
+      navigate(`/group/${roomId}`);
+    } catch {
+      const roomId = Math.random().toString(36).slice(2, 10).toUpperCase();
+      navigate(`/group/${roomId}`);
+    }
+  }}
+  className="btn-secondary w-full flex items-center justify-center gap-2"
+>
+  👥 CREATE GROUP ROOM (UP TO 8)
+</button>
               </div>
             )}
           </div>
