@@ -137,15 +137,36 @@ export default function HomePage() {
 
           <div className="p-8">
             {activeTab === 'create' ? (
-              <div className="flex flex-col gap-4">
-                <p className="font-body text-sm text-muted">Start an encrypted session with chat, screen share and recording.</p>
-                <button onClick={createRoom} disabled={isCreating} className="btn-primary w-full flex items-center justify-center gap-2">
-                  {isCreating ? (
-                    <><span className="w-4 h-4 border-2 border-void border-t-transparent rounded-full animate-spin" />GENERATING...</>
-                  ) : 'CREATE SECURE ROOM'}
-                </button>
-                <p className="font-display text-xs text-muted/60 text-center">E2E encrypted · Chat · Screen share · Recording</p>
-              </div>
+  <div className="flex flex-col gap-4">
+    <p className="font-body text-sm text-muted">Start an encrypted session with chat, screen share and recording.</p>
+    <button onClick={createRoom} disabled={isCreating} className="btn-primary w-full flex items-center justify-center gap-2">
+      {isCreating ? (
+        <><span className="w-4 h-4 border-2 border-void border-t-transparent rounded-full animate-spin" />GENERATING...</>
+      ) : 'CREATE SECURE ROOM'}
+    </button>
+    <button
+      onClick={async () => {
+        try {
+          const token = localStorage.getItem('pt_token');
+          const res = await fetch(`${BACKEND_URL}/api/rooms`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          });
+          const data = await res.json();
+          const roomId = data.roomId || Math.random().toString(36).slice(2, 10).toUpperCase();
+          navigate(`/group/${roomId}`);
+        } catch {
+          const roomId = Math.random().toString(36).slice(2, 10).toUpperCase();
+          navigate(`/group/${roomId}`);
+        }
+      }}
+      className="btn-secondary w-full flex items-center justify-center gap-2"
+    >
+      👥 CREATE GROUP ROOM (UP TO 8)
+    </button>
+    <p className="font-display text-xs text-muted/60 text-center">E2E encrypted · Chat · Screen share · Recording</p>
+  </div>
             ) : (
               <div className="flex flex-col gap-4">
                 <p className="font-body text-sm text-muted">Enter a room ID shared by your peer.</p>
@@ -161,27 +182,6 @@ export default function HomePage() {
                 />
                 {joinError && <p className="font-display text-xs text-warn text-center">{joinError}</p>}
                 <button onClick={joinRoom} className="btn-secondary w-full">JOIN ROOM →</button>
-                <button
-  onClick={async () => {
-    try {
-      const token = localStorage.getItem('pt_token');
-      const res = await fetch(`${BACKEND_URL}/api/rooms`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      const roomId = data.roomId || Math.random().toString(36).slice(2, 10).toUpperCase();
-      navigate(`/group/${roomId}`);
-    } catch {
-      const roomId = Math.random().toString(36).slice(2, 10).toUpperCase();
-      navigate(`/group/${roomId}`);
-    }
-  }}
-  className="btn-secondary w-full flex items-center justify-center gap-2"
->
-  👥 CREATE GROUP ROOM (UP TO 8)
-</button>
               </div>
             )}
           </div>
