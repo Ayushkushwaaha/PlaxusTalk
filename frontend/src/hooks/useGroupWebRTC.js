@@ -80,9 +80,11 @@ export function useGroupWebRTC(roomId) {
       localStreamRef.current = stream;
 
       // FIX 3 — always update localVideoRef srcObject
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
+      if (localVideoRef.current) 
+        {
+  localVideoRef.current.srcObject = stream;
+  localVideoRef.current.play().catch(() => {});
+}
 
       // Replace tracks in all active peer connections
       const videoTrack = stream.getVideoTracks()[0];

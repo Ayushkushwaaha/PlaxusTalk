@@ -248,15 +248,44 @@ export default function GroupRoomPage() {
           {/* Video Grid */}
           <div className={`flex-1 grid ${getGridClass()} gap-3 min-h-0`}>
             {/* Local tile */}
-            <VideoTile
-              stream={localVideoRef.current?.srcObject}
-              name={user?.name || 'You'}
-              isLocal={true}
-              isVideoOff={isVideoOff}
-              isMuted={isAudioMuted}
-            />
-            {/* Hidden local video to maintain stream ref */}
-            <video ref={localVideoRef} autoPlay playsInline muted className="hidden" />
+            {/* Local tile — use a dedicated video element instead of passing stream */}
+<div className="relative bg-panel border border-border overflow-hidden rounded-lg aspect-video group">
+  <div className="absolute top-2 left-2 w-3 h-3 border-t border-l border-accent/40 z-10" />
+  <div className="absolute top-2 right-2 w-3 h-3 border-t border-r border-accent/40 z-10" />
+  <div className="absolute bottom-2 left-2 w-3 h-3 border-b border-l border-accent/40 z-10" />
+  <div className="absolute bottom-2 right-2 w-3 h-3 border-b border-r border-accent/40 z-10" />
+
+  {isVideoOff ? (
+    <div className="w-full h-full flex flex-col items-center justify-center bg-void gap-3">
+      <div className="w-14 h-14 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center">
+        <span className="font-display text-xl text-accent">
+          {user?.name?.charAt(0)?.toUpperCase() || 'A'}
+        </span>
+      </div>
+      <span className="font-display text-xs text-muted tracking-widest">CAM OFF</span>
+    </div>
+  ) : (
+    <video
+      ref={localVideoRef}
+      autoPlay playsInline muted
+      className="w-full h-full object-cover"
+    />
+  )}
+
+  {isAudioMuted && (
+    <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-warn/80 backdrop-blur px-2 py-1 rounded-full flex items-center gap-1">
+      <span className="text-xs">🔇</span>
+      <span className="font-display text-xs text-void tracking-widest">MUTED</span>
+    </div>
+  )}
+
+  <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5">
+    <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+    <span className="font-display text-xs text-white/90 bg-void/70 backdrop-blur px-2 py-0.5 rounded tracking-widest">
+      {user?.name || 'You'} (YOU)
+    </span>
+  </div>
+</div>
 
             {/* Remote peers */}
             {peers.map(peer => (
