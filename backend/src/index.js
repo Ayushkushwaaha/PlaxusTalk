@@ -659,48 +659,67 @@ io.on('connection', (socket) => {
   socket.on('reject-peer',  ({ roomId, socketId }) => io.to(socketId).emit('waiting-rejected'));
 // Group join
 socket.on('group-join', ({ roomId, userName }) => {
-  const id = roomId.toUpperCase();
+  const id = roomId?.toUpperCase();
+  if (!id) return;
+ 
   if (!groupRooms.has(id)) groupRooms.set(id, []);
   const room = groupRooms.get(id);
-
+ 
+  // FIX 11 — Remove duplicate socket if same user rejoins
+  const existingIdx = room.findIndex(p => p.socketId === socket.id);
+  if (existingIdx !== -1) {
+    room.splice(existingIdx, 1);
+    console.log(`🔄 Removed duplicate entry for ${socket.id} in group room ${id}`);
+  }
+ 
   if (room.length >= 8) {
     socket.emit('group-room-full');
     return;
   }
-
+ 
   // Send existing peers to the new joiner
-  socket.emit('group-peers', { peers: room.map((p) => ({ socketId: p.socketId, name: p.userName })) });
-
-  // Add new peer to room
+  socket.emit('group-peers', {
+    peers: room.map(p => ({ socketId: p.socketId, name: p.userName }))
+  });
+ 
+  // Add new peer
   room.push({ socketId: socket.id, userName: userName || 'Guest' });
   socket.join(id);
-
-  // Notify others
-  socket.to(id).emit('group-peer-joined', { socketId: socket.id, name: userName });
-
-  console.log(`👥 ${socket.id} joined group room ${id} (${room.length}/8)`);
+ 
+  // Notify existing peers
+  socket.to(id).emit('group-peer-joined', {
+    socketId: socket.id,
+    name: userName || 'Guest'
+  });
+ 
+  console.log(`👥 ${socket.id} (${userName}) joined group room ${id} (${room.length}/8)`);
 });
-
-// Group WebRTC signaling
+ 
 socket.on('group-offer', ({ roomId, to, offer }) => {
   socket.to(to).emit('group-offer', { from: socket.id, offer });
 });
-
+ 
 socket.on('group-answer', ({ roomId, to, answer }) => {
   socket.to(to).emit('group-answer', { from: socket.id, answer });
 });
-
+ 
 socket.on('group-ice', ({ roomId, to, candidate }) => {
   socket.to(to).emit('group-ice', { from: socket.id, candidate });
 });
-
+socket.on('group-peer-muted', ({ roomId, isMuted }) => {
+  const id = roomId?.toUpperCase();
+  if (!id) return;
+  socket.to(id).emit('group-peer-muted', { socketId: socket.id, isMuted });
+});
+ 
 socket.on('group-leave', ({ roomId }) => {
   const id = roomId?.toUpperCase();
   if (!id || !groupRooms.has(id)) return;
   const room = groupRooms.get(id);
-  groupRooms.set(id, room.filter((p) => p.socketId !== socket.id));
+  groupRooms.set(id, room.filter(p => p.socketId !== socket.id));
   socket.to(id).emit('group-peer-left', { socketId: socket.id });
   if (groupRooms.get(id).length === 0) groupRooms.delete(id);
+  console.log(`👋 ${socket.id} left group room ${id}`);
 });
 
   socket.on('disconnect', async () => {
@@ -718,6 +737,16 @@ socket.on('group-leave', ({ roomId }) => {
     io.to(currentRoomId).emit('peer-left', { userCount: room.users.length });
     if (room.users.length === 0) { rooms.delete(currentRoomId); console.log(`🗑️  Room ${currentRoomId} deleted`); }
   });
+  groupRooms.forEach((peers, roomId) => {
+  // FIX 11 — Clean up group room on disconnect
+  const wasMember = peers.find(p => p.socketId === socket.id);
+  if (wasMember) {
+    groupRooms.set(roomId, peers.filter(p => p.socketId !== socket.id));
+    socket.to(roomId).emit('group-peer-left', { socketId: socket.id });
+    if (groupRooms.get(roomId).length === 0) groupRooms.delete(roomId);
+    console.log(`🔌 Cleaned up ${socket.id} from group room ${roomId} on disconnect`);
+  }
+});
 });
 
 const PORT = process.env.PORT || 3001;
