@@ -14,6 +14,8 @@ import FriendsPage from './pages/FriendsPage';
 import AdminPage from './pages/AdminPage';
 import DecentralizedProfilePage from './pages/DecentralizedProfilePage';
 import GroupRoomPage from './pages/GroupRoomPage';
+import Navbar from './components/Navbar';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
 
 export default function App() {
   return (
@@ -31,8 +33,9 @@ export default function App() {
             <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
             <Route path="/admin"   element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
             <Route path="*"        element={<Navigate to="/" replace />} />
-            <Route path="/group/:roomId" element={<ProtectedRoute><GroupRoomPage /></ProtectedRoute>
-} />
+            <Route path="/group/:roomId" element={<ProtectedRoute><GroupRoomPage /></ProtectedRoute>}/>
+            <Route path="/" element={<ProtectedRoute><Navbar /><HomePage /></ProtectedRoute>} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           </Routes>
           <NotificationBanner />
         </div>

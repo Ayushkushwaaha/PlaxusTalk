@@ -140,7 +140,9 @@ export default function LoginPage() {
               <span className="font-display text-xs text-muted/40 tracking-widest">OR</span>
               <div className="flex-1 h-px bg-border" />
             </div>
-
+            <Link to="/forgot-password" className="font-display text-xs text-muted hover:text-accent tracking-widest transition-colors">
+  FORGOT PASSWORD?
+            </Link>
             {/* Signup link */}
             <p className="text-center font-body text-sm text-muted">
               Don't have an account?{' '}
