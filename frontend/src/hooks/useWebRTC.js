@@ -29,11 +29,15 @@ const ICE_SERVERS = {
 };
 
 export function useWebRTC(roomId) {
+  // These refs hold the actual stream objects
+  const localStreamRef  = useRef(null);
+  const pcRef           = useRef(null);
+  const isInitiatorRef  = useRef(false);
+
+  // These refs point to the <video> DOM elements in the component
+  // They are set via the returned ref callbacks
   const localVideoRef  = useRef(null);
   const remoteVideoRef = useRef(null);
-  const pcRef          = useRef(null);
-  const localStreamRef = useRef(null);
-  const isInitiatorRef = useRef(false);
 
   const [connectionState, setConnectionState] = useState('idle');
   const [iceState,        setIceState]        = useState('new');
@@ -43,19 +47,78 @@ export function useWebRTC(roomId) {
   const [isP2P,           setIsP2P]           = useState(false);
   const [peerCount,       setPeerCount]       = useState(0);
   const [callId,          setCallId]          = useState(null);
+  // FIX: track whether camera has started so we can show it
+  const [cameraReady,     setCameraReady]     = useState(false);
 
   const socket = getSocket();
 
+  // ── FIX: Start camera and attach to video element ─────────────────────────
+  const startLocalStream = useCallback(async () => {
+    try {
+      // Stop any existing stream first
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          facingMode: 'user',
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+
+      localStreamRef.current = stream;
+
+      // FIX: Attach stream to video element immediately
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.play().catch(() => {});
+      }
+
+      setCameraReady(true);
+      return stream;
+    } catch (err) {
+      console.error('Camera error:', err);
+      // Try audio only if camera fails
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStreamRef.current = audioStream;
+        setCameraReady(true);
+        return audioStream;
+      } catch {
+        setConnectionState('failed');
+        return null;
+      }
+    }
+  }, []);
+
+  // FIX: When localVideoRef gets attached to a DOM element, set the stream
+  const { setLocalVideoRef, setRemoteVideoRef,} = useWebRTC(roomId); = useCallback((el) => {
+    localVideoRef.current = el;
+    if (el && localStreamRef.current) {
+      el.srcObject = localStreamRef.current;
+      el.play().catch(() => {});
+    }
+  }, []);
+
+  const setRemoteVideoRef = useCallback((el) => {
+    remoteVideoRef.current = el;
+  }, []);
+
+  // ── Peer connection ───────────────────────────────────────────────────────
   const createPeerConnection = useCallback(() => {
     if (pcRef.current) pcRef.current.close();
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit('ice-candidate', { roomId, candidate: event.candidate });
-      }
+    pc.onicecandidate = (e) => {
+      if (e.candidate) socket.emit('ice-candidate', { roomId, candidate: e.candidate });
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -74,14 +137,16 @@ export function useWebRTC(roomId) {
       if (pc.connectionState === 'disconnected') setConnectionState('disconnected');
     };
 
-    pc.ontrack = (event) => {
-      if (remoteVideoRef.current && event.streams[0]) {
-        remoteVideoRef.current.srcObject = event.streams[0];
+    pc.ontrack = (e) => {
+      if (e.streams?.[0] && remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = e.streams[0];
+        remoteVideoRef.current.play().catch(() => {});
       }
     };
 
+    // Add local tracks to peer connection
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
+      localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current);
       });
     }
@@ -89,32 +154,15 @@ export function useWebRTC(roomId) {
     return pc;
   }, [roomId, socket]);
 
-  const startLocalStream = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-        audio: true,
-      });
-      localStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-      return stream;
-    } catch (err) {
-      console.error('getUserMedia error:', err);
-      setConnectionState('failed');
-      return null;
-    }
-  }, []);
+  // ── Join room ─────────────────────────────────────────────────────────────
+  const joinRoom = useCallback(async (wallet, userId, userName, password) => {
+    await startLocalStream();
+    if (!socket.connected) socket.connect();
+    socket.emit('join-room', { roomId, wallet, userId, userName, password });
+    setConnectionState('connecting');
+  }, [roomId, socket, startLocalStream]);
 
-  const joinRoom = useCallback(
-    async (wallet, userId, userName, password) => {
-      await startLocalStream();
-      socket.connect();
-      socket.emit('join-room', { roomId, wallet, userId, userName, password });
-      setConnectionState('connecting');
-    },
-    [roomId, socket, startLocalStream]
-  );
-
+  // ── Socket events ─────────────────────────────────────────────────────────
   useEffect(() => {
     const onJoined = ({ isInitiator, peerCount: count, callId: cid }) => {
       setPeerCount(count);
@@ -127,15 +175,10 @@ export function useWebRTC(roomId) {
       if (userCount === 2 && isInitiatorRef.current) {
         try {
           const pc = createPeerConnection();
-          const offer = await pc.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: true,
-          });
+          const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
           await pc.setLocalDescription(offer);
           socket.emit('offer', { roomId, offer });
-        } catch (err) {
-          console.error('Offer error:', err);
-        }
+        } catch (err) { console.error('Offer error:', err); }
       }
     };
 
@@ -146,29 +189,19 @@ export function useWebRTC(roomId) {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socket.emit('answer', { roomId, answer });
-      } catch (err) {
-        console.error('Answer error:', err);
-      }
+      } catch (err) { console.error('Answer error:', err); }
     };
 
     const onAnswer = async ({ answer }) => {
       try {
-        if (pcRef.current) {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-        }
-      } catch (err) {
-        console.error('setRemoteDescription error:', err);
-      }
+        if (pcRef.current) await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+      } catch (err) { console.error('setRemoteDescription error:', err); }
     };
 
     const onIceCandidate = async ({ candidate }) => {
       try {
-        if (pcRef.current && candidate) {
-          await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-        }
-      } catch (err) {
-        console.error('ICE candidate error:', err);
-      }
+        if (pcRef.current && candidate) await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) { console.error('ICE candidate error:', err); }
     };
 
     const onPeerLeft = ({ userCount }) => {
@@ -201,28 +234,48 @@ export function useWebRTC(roomId) {
     };
   }, [roomId, socket, createPeerConnection]);
 
+  // ── Controls ──────────────────────────────────────────────────────────────
   const toggleAudio = useCallback(() => {
     if (!localStreamRef.current) return;
-    localStreamRef.current.getAudioTracks().forEach((t) => { t.enabled = !t.enabled; });
-    setIsAudioMuted((m) => !m);
+    localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = !t.enabled; });
+    setIsAudioMuted(m => !m);
   }, []);
 
   const toggleVideo = useCallback(() => {
     if (!localStreamRef.current) return;
-    localStreamRef.current.getVideoTracks().forEach((t) => { t.enabled = !t.enabled; });
-    setIsVideoOff((v) => !v);
-  }, []);
+    const tracks = localStreamRef.current.getVideoTracks();
+    if (tracks.length === 0) return;
+    const newOff = !isVideoOff;
+    tracks.forEach(t => { t.enabled = !newOff; });
+    // FIX: Re-attach stream after toggling so preview comes back
+    if (!newOff && localVideoRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(() => {});
+    }
+    setIsVideoOff(newOff);
+  }, [isVideoOff]);
 
   const hangUp = useCallback(() => {
     pcRef.current?.close();
-    localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
     socket.disconnect();
     setConnectionState('idle');
+    setCameraReady(false);
   }, [socket]);
 
   return {
-    localVideoRef, remoteVideoRef, connectionState, iceState,
-    isAudioMuted, isVideoOff, latency, isP2P, peerCount, callId,
-    localStreamRef, pcRef, joinRoom, toggleAudio, toggleVideo, hangUp,
+    // Ref callbacks — use these as ref={setLocalVideoRef} on <video> elements
+    setLocalVideoRef,
+    setRemoteVideoRef,
+    // Also expose raw refs for screen share etc
+    localVideoRef,
+    remoteVideoRef,
+    localStreamRef,
+    pcRef,
+    // State
+    connectionState, iceState, isAudioMuted, isVideoOff,
+    latency, isP2P, peerCount, callId, cameraReady,
+    // Actions
+    joinRoom, toggleAudio, toggleVideo, hangUp,
   };
 }

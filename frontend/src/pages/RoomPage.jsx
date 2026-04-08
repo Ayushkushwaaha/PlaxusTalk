@@ -5,6 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import { getSocket } from '../lib/socket';
 import StatsPanel from '../components/StatsPanel';
 import WalletButton from '../components/WalletButton';
+import PersistentChat from '../components/PersistentChat';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -255,7 +256,7 @@ function MobileChatDrawer({ open, onClose, roomId, user, socket }) {
         </div>
         {/* Chat content */}
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          <ChatBox roomId={roomId} user={user} socket={socket} compact />
+          <PersistentChat roomId={roomId} user={user} socket={socket} compact />
         </div>
       </div>
     </>
@@ -312,7 +313,7 @@ export default function RoomPage() {
   // ── Shared video tiles ─────────────────────────────────────────────────────
   const RemoteVideo = () => (
     <div style={{ position: 'relative', borderRadius: '14px', overflow: 'hidden', background: '#0a0a10', border: '1px solid rgba(255,255,255,0.07)', height: '100%' }}>
-      <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+      <video ref={setRemoteVideoRef}autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
       {(!isConnected || peerCount < 2) && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
           <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'rgba(77,166,255,0.12)', border: '1px solid rgba(77,166,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', color: '#4da6ff' }}>?</div>
@@ -336,7 +337,7 @@ export default function RoomPage() {
           <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#4a4a5c', letterSpacing: '0.1em' }}>CAM OFF</span>
         </div>
       ) : (
-        <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', transform: 'scaleX(-1)' }} />
+        <video ref={setLocalVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', transform: 'scaleX(-1)' }} />
       )}
       <div style={{ position: 'absolute', bottom: '10px', left: '10px', display: 'flex', alignItems: 'center', gap: '5px' }}>
         <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 6px #00ff88' }} />
@@ -517,7 +518,7 @@ export default function RoomPage() {
 
           {sideTab === 'chat' && (
             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-              <ChatBox roomId={roomId} user={user} socket={socket} />
+              <PersistentChat roomId={roomId} user={user} socket={socket} />
             </div>
           )}
 

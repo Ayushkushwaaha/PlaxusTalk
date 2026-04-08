@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { useGroupWebRTC } from '../hooks/useGroupWebRTC';
 
+
 const REACTIONS = ['👍','❤️','😂','😮','👏','🔥','🎉','😢'];
 
 // ── Single Video Tile ─────────────────────────────────────────────────────────
@@ -542,7 +543,7 @@ function PeerTile({ peer }) {
   return (
     <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', minHeight: 0, aspectRatio: '16/9', background: '#0a0a10', border: '1px solid rgba(255,255,255,0.07)', animation: 'fadeIn 0.4s ease' }}>
       {peer.stream ? (
-        <video ref={ref} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        <video ref={setLocalVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
       ) : (
         <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
           <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(77,166,255,0.15)', border: '1px solid rgba(77,166,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: '#4da6ff', fontFamily: 'monospace', fontWeight: 700 }}>

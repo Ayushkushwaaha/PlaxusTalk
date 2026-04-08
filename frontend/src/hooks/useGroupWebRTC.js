@@ -4,28 +4,11 @@ import { getSocket } from '../lib/socket';
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun.relay.metered.ca:80' },
-    {
-      urls: 'turn:global.relay.metered.ca:80',
-      username: 'b1ddb764e1d0b66a7267de87',
-      credential: 'Z838/HM7L1qC+HDP',
-    },
-    {
-      urls: 'turn:global.relay.metered.ca:80?transport=tcp',
-      username: 'b1ddb764e1d0b66a7267de87',
-      credential: 'Z838/HM7L1qC+HDP',
-    },
-    {
-      urls: 'turn:global.relay.metered.ca:443',
-      username: 'b1ddb764e1d0b66a7267de87',
-      credential: 'Z838/HM7L1qC+HDP',
-    },
-    {
-      urls: 'turns:global.relay.metered.ca:443?transport=tcp',
-      username: 'b1ddb764e1d0b66a7267de87',
-      credential: 'Z838/HM7L1qC+HDP',
-    },
+    { urls: 'turn:global.relay.metered.ca:80', username: 'b1ddb764e1d0b66a7267de87', credential: 'Z838/HM7L1qC+HDP' },
+    { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username: 'b1ddb764e1d0b66a7267de87', credential: 'Z838/HM7L1qC+HDP' },
+    { urls: 'turn:global.relay.metered.ca:443', username: 'b1ddb764e1d0b66a7267de87', credential: 'Z838/HM7L1qC+HDP' },
+    { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: 'b1ddb764e1d0b66a7267de87', credential: 'Z838/HM7L1qC+HDP' },
   ],
 };
 
@@ -33,88 +16,79 @@ const MAX_PEERS = 8;
 
 export function useGroupWebRTC(roomId) {
   const localStreamRef  = useRef(null);
-  const localVideoRef   = useRef(null);
-  const peerConnections = useRef({});       // socketId → RTCPeerConnection
-  const screenStreamRef = useRef(null);     // FIX 1 — screen share stream
-  const facingModeRef   = useRef('user');   // FIX 8 — camera facing mode
+  const localVideoRef   = useRef(null); // points to DOM <video>
+  const peerConnections = useRef({});
+  const screenStreamRef = useRef(null);
+  const facingModeRef   = useRef('user');
 
   const [peers,          setPeers]          = useState([]);
   const [isAudioMuted,   setIsAudioMuted]   = useState(false);
   const [isVideoOff,     setIsVideoOff]     = useState(false);
-  const [isCameraStarted,setIsCameraStarted]= useState(false);
+  const [cameraReady,    setCameraReady]    = useState(false);
   const [peerCount,      setPeerCount]      = useState(0);
   const [roomFull,       setRoomFull]       = useState(false);
-  const [isSharing,      setIsSharing]      = useState(false); // FIX 1
-  const [isRecording,    setIsRecording]    = useState(false); // FIX 2
-  const [recordingTime,  setRecordingTime]  = useState(0);     // FIX 2
-  const [facingMode,     setFacingMode]     = useState('user');// FIX 8
+  const [isSharing,      setIsSharing]      = useState(false);
+  const [isRecording,    setIsRecording]    = useState(false);
+  const [recordingTime,  setRecordingTime]  = useState(0);
+  const [facingMode,     setFacingMode]     = useState('user');
 
-  const mediaRecorderRef = useRef(null);
-  const recordingChunks  = useRef([]);
-  const recordingTimer   = useRef(null);
-
+  const recorderRef  = useRef(null);
+  const recChunks    = useRef([]);
+  const recTimer     = useRef(null);
   const socket = getSocket();
 
-  // ── FIX 3+4 — Start camera with correct constraints ───────────────────────
+  // ── FIX: Camera start — attaches to DOM video element ─────────────────────
   const startLocalStream = useCallback(async (facing = 'user') => {
-    // Stop existing tracks first
+    // Stop existing tracks
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(t => t.stop());
     }
+
     try {
       const isMobile = /Mobi|Android/i.test(navigator.userAgent);
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: facing,
-          // FIX 4 — limit resolution on mobile to avoid zoomed face
-          width:  isMobile ? { ideal: 640,  max: 1280 } : { ideal: 1280 },
-          height: isMobile ? { ideal: 480,  max: 720  } : { ideal: 720  },
-          aspectRatio: { ideal: 1.777 }, // 16:9
+          width:  isMobile ? { ideal: 640 } : { ideal: 1280 },
+          height: isMobile ? { ideal: 480 } : { ideal: 720 },
         },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 44100,
-        },
+        audio: { echoCancellation: true, noiseSuppression: true },
       });
+
       localStreamRef.current = stream;
 
-      // FIX 3 — always update localVideoRef srcObject
-      if (localVideoRef.current) 
-        {
-  localVideoRef.current.srcObject = stream;
-  localVideoRef.current.play().catch(() => {});
-}
+      // FIX: Always attach to video element
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.play().catch(() => {});
+      }
 
-      // Replace tracks in all active peer connections
-      const videoTrack = stream.getVideoTracks()[0];
-      const audioTrack = stream.getAudioTracks()[0];
-      Object.values(peerConnections.current).forEach(pc => {
-        pc.getSenders().forEach(sender => {
-          if (sender.track?.kind === 'video' && videoTrack) {
-            sender.replaceTrack(videoTrack).catch(() => {});
-          }
-          if (sender.track?.kind === 'audio' && audioTrack) {
-            sender.replaceTrack(audioTrack).catch(() => {});
-          }
+      // Replace tracks in existing peer connections
+      stream.getTracks().forEach(newTrack => {
+        Object.values(peerConnections.current).forEach(pc => {
+          const sender = pc.getSenders().find(s => s.track?.kind === newTrack.kind);
+          if (sender) sender.replaceTrack(newTrack).catch(() => {});
         });
       });
 
-      setIsCameraStarted(true);
+      setCameraReady(true);
       return stream;
     } catch (err) {
       console.error('getUserMedia error:', err);
-      // FIX 3 — try without video if camera fails
-      try {
-        const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
-        localStreamRef.current = audioOnly;
-        setIsCameraStarted(true);
-        return audioOnly;
-      } catch { return null; }
+      return null;
     }
   }, []);
 
-  // ── FIX 8 — Toggle front/back camera ─────────────────────────────────────
+  // FIX: Ref callback — when <video> mounts, attach stream immediately
+  const setLocalVideoRef = useCallback((el) => {
+    localVideoRef.current = el;
+    if (el && localStreamRef.current) {
+      el.srcObject = localStreamRef.current;
+      el.play().catch(() => {});
+    }
+  }, []);
+
+  // ── Switch camera ─────────────────────────────────────────────────────────
   const switchCamera = useCallback(async () => {
     const newFacing = facingModeRef.current === 'user' ? 'environment' : 'user';
     facingModeRef.current = newFacing;
@@ -131,7 +105,6 @@ export function useGroupWebRTC(roomId) {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnections.current[targetSocketId] = pc;
 
-    // Add local tracks
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track =>
         pc.addTrack(track, localStreamRef.current)
@@ -139,20 +112,14 @@ export function useGroupWebRTC(roomId) {
     }
 
     pc.onicecandidate = e => {
-      if (e.candidate) {
-        socket.emit('group-ice', { roomId, to: targetSocketId, candidate: e.candidate });
-      }
+      if (e.candidate) socket.emit('group-ice', { roomId, to: targetSocketId, candidate: e.candidate });
     };
 
     pc.ontrack = e => {
       if (e.streams?.[0]) {
         setPeers(prev => {
           const exists = prev.find(p => p.socketId === targetSocketId);
-          if (exists) {
-            return prev.map(p =>
-              p.socketId === targetSocketId ? { ...p, stream: e.streams[0] } : p
-            );
-          }
+          if (exists) return prev.map(p => p.socketId === targetSocketId ? { ...p, stream: e.streams[0] } : p);
           return [...prev, { socketId: targetSocketId, stream: e.streams[0], name: 'Peer', isMuted: false }];
         });
       }
@@ -168,105 +135,73 @@ export function useGroupWebRTC(roomId) {
     return pc;
   }, [roomId, socket]);
 
-  // ── FIX 10 — Join room by ID ──────────────────────────────────────────────
+  // ── Join room ─────────────────────────────────────────────────────────────
   const joinRoom = useCallback(async (userName) => {
-    const stream = await startLocalStream(facingModeRef.current);
+    await startLocalStream(facingModeRef.current);
     if (!socket.connected) socket.connect();
-    const id = roomId?.toUpperCase();
-    socket.emit('group-join', { roomId: id, userName: userName || 'Guest' });
+    socket.emit('group-join', { roomId: roomId?.toUpperCase(), userName: userName || 'Guest' });
   }, [roomId, socket, startLocalStream]);
 
-  // ── FIX 1 — Screen share ─────────────────────────────────────────────────
+  // ── Screen share ──────────────────────────────────────────────────────────
   const startScreenShare = useCallback(async () => {
     try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: 'always' }, audio: false,
-      });
-      screenStreamRef.current = screenStream;
-      const screenTrack = screenStream.getVideoTracks()[0];
-
-      // Replace video track in all peer connections
+      const ss = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: 'always' }, audio: false });
+      screenStreamRef.current = ss;
+      const screenTrack = ss.getVideoTracks()[0];
       Object.values(peerConnections.current).forEach(pc => {
         const sender = pc.getSenders().find(s => s.track?.kind === 'video');
         if (sender) sender.replaceTrack(screenTrack).catch(() => {});
       });
-
-      // Show in local video
       if (localVideoRef.current) {
-        const combined = new MediaStream([
-          screenTrack,
-          ...(localStreamRef.current?.getAudioTracks() || []),
-        ]);
-        localVideoRef.current.srcObject = combined;
+        localVideoRef.current.srcObject = new MediaStream([screenTrack, ...(localStreamRef.current?.getAudioTracks() || [])]);
       }
-
       screenTrack.onended = () => stopScreenShare();
       setIsSharing(true);
-    } catch (err) {
-      if (err.name !== 'NotAllowedError') console.error('Screen share error:', err);
-    }
+    } catch (err) { if (err.name !== 'NotAllowedError') console.error(err); }
   }, []);
 
   const stopScreenShare = useCallback(async () => {
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
-    // Restore camera track
-    const cameraTrack = localStreamRef.current?.getVideoTracks()[0];
-    if (cameraTrack) {
+    const camTrack = localStreamRef.current?.getVideoTracks()[0];
+    if (camTrack) {
       Object.values(peerConnections.current).forEach(pc => {
         const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) sender.replaceTrack(cameraTrack).catch(() => {});
+        if (sender) sender.replaceTrack(camTrack).catch(() => {});
       });
     }
-    // FIX 3 — restore local preview
     if (localVideoRef.current && localStreamRef.current) {
       localVideoRef.current.srcObject = localStreamRef.current;
+      localVideoRef.current.play().catch(() => {});
     }
     setIsSharing(false);
   }, []);
 
-  const toggleScreenShare = useCallback(() => {
-    if (isSharing) stopScreenShare(); else startScreenShare();
-  }, [isSharing, startScreenShare, stopScreenShare]);
+  const toggleScreenShare = () => isSharing ? stopScreenShare() : startScreenShare();
 
-  // ── FIX 2 — Recording ────────────────────────────────────────────────────
+  // ── Recording ─────────────────────────────────────────────────────────────
   const startRecording = useCallback(() => {
     try {
-      const tracks = [
-        ...(localStreamRef.current?.getTracks() || []),
-      ];
-      const stream = new MediaStream(tracks);
-      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
-      recordingChunks.current = [];
-      recorder.ondataavailable = e => { if (e.data.size > 0) recordingChunks.current.push(e.data); };
-      recorder.onstop = () => {
-        const blob = new Blob(recordingChunks.current, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `PlexusTalk-Group-${Date.now()}.webm`;
-        a.click();
+      if (!localStreamRef.current) return;
+      const rec = new MediaRecorder(localStreamRef.current, { mimeType: 'video/webm;codecs=vp8,opus' });
+      recorderRef.current = rec; recChunks.current = [];
+      rec.ondataavailable = e => { if (e.data.size > 0) recChunks.current.push(e.data); };
+      rec.onstop = () => {
+        const url = URL.createObjectURL(new Blob(recChunks.current, { type: 'video/webm' }));
+        Object.assign(document.createElement('a'), { href: url, download: `PlexusTalk-Group-${Date.now()}.webm` }).click();
         URL.revokeObjectURL(url);
       };
-      recorder.start(1000);
-      mediaRecorderRef.current = recorder;
-      setIsRecording(true);
-      setRecordingTime(0);
-      recordingTimer.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
-    } catch (err) { console.error('Recording error:', err); }
+      rec.start(1000); setIsRecording(true); setRecordingTime(0);
+      recTimer.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
+    } catch (err) { console.error(err); }
   }, []);
 
   const stopRecording = useCallback(() => {
-    mediaRecorderRef.current?.stop();
-    clearInterval(recordingTimer.current);
-    setIsRecording(false);
-    setRecordingTime(0);
+    recorderRef.current?.stop(); clearInterval(recTimer.current);
+    setIsRecording(false); setRecordingTime(0);
   }, []);
 
-  const toggleRecording = useCallback(() => {
-    if (isRecording) stopRecording(); else startRecording();
-  }, [isRecording, startRecording, stopRecording]);
-
-  const formatTime = t => `${String(Math.floor(t / 60)).padStart(2,'0')}:${String(t % 60).padStart(2,'0')}`;
+  const toggleRecording = () => isRecording ? stopRecording() : startRecording();
+  const formatTime = t => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
 
   // ── Socket events ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -310,17 +245,12 @@ export function useGroupWebRTC(roomId) {
 
     const onGroupAnswer = async ({ from, answer }) => {
       const pc = peerConnections.current[from];
-      if (pc) {
-        try { await pc.setRemoteDescription(new RTCSessionDescription(answer)); }
-        catch (e) { console.error('setRemote error:', e); }
-      }
+      if (pc) try { await pc.setRemoteDescription(new RTCSessionDescription(answer)); } catch (e) { console.error(e); }
     };
 
     const onGroupIce = async ({ from, candidate }) => {
       const pc = peerConnections.current[from];
-      if (pc && candidate) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch { }
-      }
+      if (pc && candidate) try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch { }
     };
 
     const onGroupPeerLeft = ({ socketId }) => {
@@ -332,11 +262,8 @@ export function useGroupWebRTC(roomId) {
       }
     };
 
-    // FIX 9 — Peer muted status
     const onPeerMuted = ({ socketId, isMuted }) => {
-      setPeers(prev => prev.map(p =>
-        p.socketId === socketId ? { ...p, isMuted } : p
-      ));
+      setPeers(prev => prev.map(p => p.socketId === socketId ? { ...p, isMuted } : p));
     };
 
     const onGroupFull = () => setRoomFull(true);
@@ -348,7 +275,7 @@ export function useGroupWebRTC(roomId) {
     socket.on('group-ice',         onGroupIce);
     socket.on('group-peer-left',   onGroupPeerLeft);
     socket.on('group-room-full',   onGroupFull);
-    socket.on('group-peer-muted',  onPeerMuted); // FIX 9
+    socket.on('group-peer-muted',  onPeerMuted);
 
     return () => {
       socket.off('group-peers',       onGroupPeers);
@@ -368,27 +295,26 @@ export function useGroupWebRTC(roomId) {
     const newMuted = !isAudioMuted;
     localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = !newMuted; });
     setIsAudioMuted(newMuted);
-    // FIX 9 — broadcast mute status to peers
     socket.emit('group-peer-muted', { roomId: roomId?.toUpperCase(), isMuted: newMuted });
   }, [isAudioMuted, roomId, socket]);
 
-  // FIX 3 — Toggle video properly and restore preview
   const toggleVideo = useCallback(async () => {
     if (!localStreamRef.current) return;
-    const newVideoOff = !isVideoOff;
-    if (newVideoOff) {
-      // Turn off — just disable tracks
+    const newOff = !isVideoOff;
+    if (newOff) {
       localStreamRef.current.getVideoTracks().forEach(t => { t.enabled = false; });
       setIsVideoOff(true);
     } else {
-      // Turn back on — re-request camera to restore preview
+      // FIX: Re-enable or restart camera
       const tracks = localStreamRef.current.getVideoTracks();
       if (tracks.length > 0 && tracks[0].readyState === 'live') {
         tracks.forEach(t => { t.enabled = true; });
-        if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = localStreamRef.current;
+          localVideoRef.current.play().catch(() => {});
+        }
         setIsVideoOff(false);
       } else {
-        // Track ended — restart camera
         await startLocalStream(facingModeRef.current);
         setIsVideoOff(false);
       }
@@ -403,14 +329,16 @@ export function useGroupWebRTC(roomId) {
     if (isRecording) stopRecording();
     socket.emit('group-leave', { roomId: roomId?.toUpperCase() });
     setPeers([]);
+    setCameraReady(false);
   }, [roomId, socket, isRecording, stopRecording]);
 
   return {
-    localVideoRef, localStreamRef,
+   setLocalVideoRef  = useGroupWebRTC();  // use as ref={setLocalVideoRef} on <video>
+    localVideoRef,     // raw ref for screen share
+    localStreamRef,
     peers, peerCount, roomFull,
-    isCameraStarted, isAudioMuted, isVideoOff,
-    isSharing, isRecording, recordingTime, formatTime,
-    facingMode,
+    cameraReady, isAudioMuted, isVideoOff,
+    isSharing, isRecording, recordingTime, formatTime, facingMode,
     joinRoom, toggleAudio, toggleVideo, hangUp,
     toggleScreenShare, toggleRecording, switchCamera,
     maxPeers: MAX_PEERS,
