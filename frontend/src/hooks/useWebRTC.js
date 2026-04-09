@@ -5,39 +5,19 @@ const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.relay.metered.ca:80' },
-    {
-      urls: 'turn:global.relay.metered.ca:80',
-      username: 'b1ddb764e1d0b66a7267de87',
-      credential: 'Z838/HM7L1qC+HDP',
-    },
-    {
-      urls: 'turn:global.relay.metered.ca:80?transport=tcp',
-      username: 'b1ddb764e1d0b66a7267de87',
-      credential: 'Z838/HM7L1qC+HDP',
-    },
-    {
-      urls: 'turn:global.relay.metered.ca:443',
-      username: 'b1ddb764e1d0b66a7267de87',
-      credential: 'Z838/HM7L1qC+HDP',
-    },
-    {
-      urls: 'turns:global.relay.metered.ca:443?transport=tcp',
-      username: 'b1ddb764e1d0b66a7267de87',
-      credential: 'Z838/HM7L1qC+HDP',
-    },
+    { urls: 'turn:global.relay.metered.ca:80', username: 'b1ddb764e1d0b66a7267de87', credential: 'Z838/HM7L1qC+HDP' },
+    { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username: 'b1ddb764e1d0b66a7267de87', credential: 'Z838/HM7L1qC+HDP' },
+    { urls: 'turn:global.relay.metered.ca:443', username: 'b1ddb764e1d0b66a7267de87', credential: 'Z838/HM7L1qC+HDP' },
+    { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: 'b1ddb764e1d0b66a7267de87', credential: 'Z838/HM7L1qC+HDP' },
   ],
 };
 
 export function useWebRTC(roomId) {
-  // These refs hold the actual stream objects
   const localStreamRef  = useRef(null);
   const pcRef           = useRef(null);
   const isInitiatorRef  = useRef(false);
-
-  // These refs point to the <video> DOM elements in the component
-  // They are set via the returned ref callbacks
-  const localVideoRef  = useRef(null);
-  const remoteVideoRef = useRef(null);
+  const localVideoRef   = useRef(null);
+  const remoteVideoRef  = useRef(null);
 
   const [connectionState, setConnectionState] = useState('idle');
   const [iceState,        setIceState]        = useState('new');
@@ -47,44 +27,28 @@ export function useWebRTC(roomId) {
   const [isP2P,           setIsP2P]           = useState(false);
   const [peerCount,       setPeerCount]       = useState(0);
   const [callId,          setCallId]          = useState(null);
-  // FIX: track whether camera has started so we can show it
   const [cameraReady,     setCameraReady]     = useState(false);
 
   const socket = getSocket();
 
-  // ── FIX: Start camera and attach to video element ─────────────────────────
   const startLocalStream = useCallback(async () => {
     try {
-      // Stop any existing stream first
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(t => t.stop());
       }
-
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
-          facingMode: 'user',
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: { echoCancellation: true, noiseSuppression: true },
       });
-
       localStreamRef.current = stream;
-
-      // FIX: Attach stream to video element immediately
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
         localVideoRef.current.play().catch(() => {});
       }
-
       setCameraReady(true);
       return stream;
     } catch (err) {
       console.error('Camera error:', err);
-      // Try audio only if camera fails
       try {
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         localStreamRef.current = audioStream;
@@ -97,8 +61,8 @@ export function useWebRTC(roomId) {
     }
   }, []);
 
-  // FIX: When localVideoRef gets attached to a DOM element, set the stream
-  const { setLocalVideoRef, setRemoteVideoRef,} = useWebRTC(roomId); = useCallback((el) => {
+  // Ref callback — attach stream when video element mounts
+  const setLocalVideoRef = useCallback((el) => {
     localVideoRef.current = el;
     if (el && localStreamRef.current) {
       el.srcObject = localStreamRef.current;
@@ -110,10 +74,8 @@ export function useWebRTC(roomId) {
     remoteVideoRef.current = el;
   }, []);
 
-  // ── Peer connection ───────────────────────────────────────────────────────
   const createPeerConnection = useCallback(() => {
     if (pcRef.current) pcRef.current.close();
-
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
@@ -144,7 +106,6 @@ export function useWebRTC(roomId) {
       }
     };
 
-    // Add local tracks to peer connection
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current);
@@ -154,7 +115,6 @@ export function useWebRTC(roomId) {
     return pc;
   }, [roomId, socket]);
 
-  // ── Join room ─────────────────────────────────────────────────────────────
   const joinRoom = useCallback(async (wallet, userId, userName, password) => {
     await startLocalStream();
     if (!socket.connected) socket.connect();
@@ -162,7 +122,6 @@ export function useWebRTC(roomId) {
     setConnectionState('connecting');
   }, [roomId, socket, startLocalStream]);
 
-  // ── Socket events ─────────────────────────────────────────────────────────
   useEffect(() => {
     const onJoined = ({ isInitiator, peerCount: count, callId: cid }) => {
       setPeerCount(count);
@@ -201,7 +160,7 @@ export function useWebRTC(roomId) {
     const onIceCandidate = async ({ candidate }) => {
       try {
         if (pcRef.current && candidate) await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) { console.error('ICE candidate error:', err); }
+      } catch (err) { console.error('ICE error:', err); }
     };
 
     const onPeerLeft = ({ userCount }) => {
@@ -234,7 +193,6 @@ export function useWebRTC(roomId) {
     };
   }, [roomId, socket, createPeerConnection]);
 
-  // ── Controls ──────────────────────────────────────────────────────────────
   const toggleAudio = useCallback(() => {
     if (!localStreamRef.current) return;
     localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = !t.enabled; });
@@ -247,7 +205,6 @@ export function useWebRTC(roomId) {
     if (tracks.length === 0) return;
     const newOff = !isVideoOff;
     tracks.forEach(t => { t.enabled = !newOff; });
-    // FIX: Re-attach stream after toggling so preview comes back
     if (!newOff && localVideoRef.current) {
       localVideoRef.current.srcObject = localStreamRef.current;
       localVideoRef.current.play().catch(() => {});
@@ -264,18 +221,14 @@ export function useWebRTC(roomId) {
   }, [socket]);
 
   return {
-    // Ref callbacks — use these as ref={setLocalVideoRef} on <video> elements
     setLocalVideoRef,
     setRemoteVideoRef,
-    // Also expose raw refs for screen share etc
     localVideoRef,
     remoteVideoRef,
     localStreamRef,
     pcRef,
-    // State
     connectionState, iceState, isAudioMuted, isVideoOff,
     latency, isP2P, peerCount, callId, cameraReady,
-    // Actions
     joinRoom, toggleAudio, toggleVideo, hangUp,
   };
 }
