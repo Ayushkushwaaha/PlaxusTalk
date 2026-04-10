@@ -279,7 +279,7 @@ export default function RoomPage() {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
 
   const {
-    localVideoRef, remoteVideoRef, connectionState, iceState,
+    setLocalVideoRef, setRemoteVideoRef, localVideoRef, remoteVideoRef, connectionState, iceState,
     isAudioMuted, isVideoOff, latency, isP2P, peerCount, callId,
     joinRoom, toggleAudio, toggleVideo, hangUp, localStreamRef, pcRef,
   } = useWebRTC(roomId);
