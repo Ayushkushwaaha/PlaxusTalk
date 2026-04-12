@@ -396,7 +396,6 @@ app.get('/api/ipfs/status', auth, (req, res) => {
 // ─── Rooms ────────────────────────────────────────────────────────────────────
 const rooms = new Map();
 const groupRooms = new Map();
-const onlineUsers = new Map(); // userId → socketId
 
 function mockLatency() { return Math.floor(80 + Math.random() * 60); }
 
