@@ -36,6 +36,16 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+// Push Notifications + Online Users
+const webpush = require('web-push');
+const onlineUsers = new Map();
+const pushSubscriptions = new Map();
+
+webpush.setVapidDetails(
+  'mailto:ayush.km123@gmail.com',
+  'BMxz0c46aPWBqI1LOeYx9Oxb6K9u18BLFw1D9INCFaE4tE8WVd9vr6n4Nzy9MSrDkQ5W0cUJUKCR0HiCw3-F1KM',
+  'SA5RfIXLTIDL6o5SW5nmY7fE2McmMNU1o4qNCKaAAE8'
+);
 
 // ─── MongoDB ──────────────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGODB_URI || 'mongodb+srv://ayushkm123:Ayush123@cluster0.lxiykaw.mongodb.net/Nexus?retryWrites=true&w=majority&appName=Cluster0';

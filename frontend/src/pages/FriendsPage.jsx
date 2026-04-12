@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
+import CallFriendButton from '../components/CallFriendButton';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -64,11 +65,6 @@ export default function FriendsPage() {
   const removeFriend = async (friendId) => {
     await api(`/api/friends/${friendId}`, token, { method: 'DELETE' });
     await load();
-  };
-
-  const callFriend = async (friend) => {
-    const data = await api('/api/rooms', token, { method: 'POST', body: JSON.stringify({}) });
-    if (data.roomId) navigate(`/room/${data.roomId}`);
   };
 
   const formatLastSeen = (d) => {
@@ -195,15 +191,12 @@ export default function FriendsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => callFriend(f)}
-                      className="btn-primary text-xs py-2 px-4 flex items-center gap-1">
-                      📞 CALL
-                    </button>
-                    <button onClick={() => removeFriend(f._id)}
-                      className="border border-warn/30 text-warn/60 hover:text-warn hover:border-warn/60 font-display text-xs tracking-widest px-3 py-2 transition-all">
-                      REMOVE
-                    </button>
-                  </div>
+                        <CallFriendButton friend={f} callType="p2p" />
+                        <button onClick={() => removeFriend(f._id)}
+                       className="border border-warn/30 text-warn/60 hover:text-warn hover:border-warn/60 font-display text-xs tracking-widest px-3 py-2 transition-all">
+                     REMOVE
+                  </button>
+               </div>
                 </div>
               ))
             )}
