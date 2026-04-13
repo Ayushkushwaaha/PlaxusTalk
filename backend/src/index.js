@@ -7,9 +7,23 @@ const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const webpush = require('web-push');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'plaxustalk_dev_secret_change_in_production';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@plaxustalk.com';
+
+// ─── In-memory stores ─────────────────────────────────────────────────────────
+const onlineUsers      = new Map(); // userId -> socketId
+const pushSubscriptions = new Map(); // userId -> push subscription
+const rooms            = new Map();
+const groupRooms       = new Map();
+
+// ─── VAPID Setup ──────────────────────────────────────────────────────────────
+webpush.setVapidDetails(
+  'mailto:ayush.km123@gmail.com',
+  'BMxz0c46aPWBqI1LOeYx9Oxb6K9u18BLFw1D9INCFaE4tE8WVd9vr6n4Nzy9MSrDkQ5W0cUJUKCR0HiCw3-F1KM',
+  'SA5RfIXLTIDL6o5SW5nmY7fE2McmMNU1o4qNCKaAAE8'
+);
 
 const app = express();
 const httpServer = createServer(app);
@@ -36,16 +50,6 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
-// Push Notifications + Online Users
-const webpush = require('web-push');
-const onlineUsers = new Map();
-const pushSubscriptions = new Map();
-
-webpush.setVapidDetails(
-  'mailto:ayush.km123@gmail.com',
-  'BMxz0c46aPWBqI1LOeYx9Oxb6K9u18BLFw1D9INCFaE4tE8WVd9vr6n4Nzy9MSrDkQ5W0cUJUKCR0HiCw3-F1KM',
-  'SA5RfIXLTIDL6o5SW5nmY7fE2McmMNU1o4qNCKaAAE8'
-);
 
 // ─── MongoDB ──────────────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGODB_URI || 'mongodb+srv://ayushkm123:Ayush123@cluster0.lxiykaw.mongodb.net/Nexus?retryWrites=true&w=majority&appName=Cluster0';
@@ -61,9 +65,8 @@ if (MONGO_URI) {
   })
   .then(() => console.log('✅ MongoDB connected'))
   .catch((err) => console.error('❌ MongoDB error:', err.message));
-} else {
-  console.log('⚠️  MONGODB_URI not set');
 }
+
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 const userSchema = new mongoose.Schema({
   name:      { type: String, required: true, trim: true },
@@ -76,9 +79,10 @@ const userSchema = new mongoose.Schema({
     from:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
   }],
-  isOnline:   { type: Boolean, default: false },
-  lastSeen:   { type: Date, default: Date.now },
-  profile_cid: { type: String, default: null }, // IPFS CID for decentralized profile
+  isOnline:        { type: Boolean, default: false },
+  lastSeen:        { type: Date, default: Date.now },
+  profile_cid:     { type: String, default: null },
+  pushSubscription: { type: Object, default: null }, // stored push subscription
 }, { timestamps: true });
 
 userSchema.pre('save', async function (next) {
@@ -98,11 +102,22 @@ const callSchema = new mongoose.Schema({
   start_time:   { type: Date, default: Date.now },
   duration:     { type: Number, default: null },
   avg_latency:  { type: Number, default: null },
-  chat_cid:     { type: String, default: null }, // IPFS CID for chat history
+  chat_cid:     { type: String, default: null },
 }, { timestamps: true });
 const Call = mongoose.model('Call', callSchema);
 
-// ─── Middleware ───────────────────────────────────────────────────────────────
+const chatMsgSchema = new mongoose.Schema({
+  roomId:     { type: String, required: true, index: true },
+  senderId:   { type: String },
+  senderName: { type: String },
+  text:       { type: String, required: true },
+  cid:        { type: String, default: null },
+  ipfsUrl:    { type: String, default: null },
+  timestamp:  { type: Date, default: Date.now },
+}, { timestamps: true });
+const ChatMsg = mongoose.model('ChatMsg', chatMsgSchema);
+
+// ─── Auth Middleware ──────────────────────────────────────────────────────────
 function auth(req, res, next) {
   const h = req.headers.authorization;
   if (!h?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
@@ -124,18 +139,15 @@ async function adminOnly(req, res, next) {
 // ─── Auth Routes ─────────────────────────────────────────────────────────────
 app.post('/api/auth/signup', async (req, res) => {
   const { name, email, password } = req.body;
-  if (!name || !email || !password)
-    return res.status(400).json({ error: 'All fields required' });
-  if (password.length < 6)
-    return res.status(400).json({ error: 'Password min 6 characters' });
+  if (!name || !email || !password) return res.status(400).json({ error: 'All fields required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password min 6 characters' });
   try {
-    if (await User.findOne({ email }))
-      return res.status(409).json({ error: 'Email already registered' });
+    if (await User.findOne({ email })) return res.status(409).json({ error: 'Email already registered' });
     const isAdmin = email === ADMIN_EMAIL;
     const user = await User.create({ name, email, password, isAdmin });
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, isAdmin: user.isAdmin } });
-  } catch (err) { res.status(500).json({ error: 'Signup failed' }); }
+  } catch { res.status(500).json({ error: 'Signup failed' }); }
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -143,8 +155,7 @@ app.post('/api/auth/login', async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'All fields required' });
   try {
     const user = await User.findOne({ email });
-    if (!user || !(await user.comparePassword(password)))
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (!user || !(await user.comparePassword(password))) return res.status(401).json({ error: 'Invalid email or password' });
     if (user.banned) return res.status(403).json({ error: 'Account banned' });
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id: user._id, name: user.name, email: user.email, isAdmin: user.isAdmin } });
@@ -171,8 +182,7 @@ app.put('/api/auth/change-password', auth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   try {
     const user = await User.findById(req.userId);
-    if (!(await user.comparePassword(currentPassword)))
-      return res.status(401).json({ error: 'Current password incorrect' });
+    if (!(await user.comparePassword(currentPassword))) return res.status(401).json({ error: 'Current password incorrect' });
     user.password = newPassword;
     await user.save();
     res.json({ message: 'Password changed' });
@@ -211,13 +221,10 @@ app.post('/api/friends/request', auth, async (req, res) => {
   try {
     const toUser = await User.findById(toId);
     if (!toUser) return res.status(404).json({ error: 'User not found' });
-    const alreadySent = toUser.friendRequests.some(
-      (r) => r.from.toString() === req.userId && r.status === 'pending'
-    );
+    const alreadySent = toUser.friendRequests.some((r) => r.from.toString() === req.userId && r.status === 'pending');
     if (alreadySent) return res.status(409).json({ error: 'Request already sent' });
     toUser.friendRequests.push({ from: req.userId, status: 'pending' });
     await toUser.save();
-    // Notify via socket if online
     const targetSocket = onlineUsers.get(toId);
     if (targetSocket) {
       const fromUser = await User.findById(req.userId).select('name');
@@ -254,149 +261,12 @@ app.delete('/api/friends/:friendId', auth, async (req, res) => {
 // ─── Calls ────────────────────────────────────────────────────────────────────
 app.get('/api/calls', auth, async (req, res) => {
   try {
-    const calls = await Call.find({
-      $or: [{ user1_id: req.userId }, { user2_id: req.userId }],
-    }).sort({ createdAt: -1 }).limit(50);
+    const calls = await Call.find({ $or: [{ user1_id: req.userId }, { user2_id: req.userId }] }).sort({ createdAt: -1 }).limit(50);
     res.json({ calls });
   } catch { res.status(500).json({ error: 'Failed' }); }
 });
 
-// ─── IPFS Routes ─────────────────────────────────────────────────────────────
-const ipfs = require('./services/ipfs');
-
-// Chat message schema in MongoDB (stores CID reference)
-const chatMsgSchema = new mongoose.Schema({
-  roomId:    { type: String, required: true, index: true },
-  senderId:  { type: String },
-  senderName:{ type: String },
-  text:      { type: String, required: true },
-  cid:       { type: String, default: null }, // IPFS CID
-  ipfsUrl:   { type: String, default: null },
-  timestamp: { type: Date, default: Date.now },
-}, { timestamps: true });
-const ChatMsg = mongoose.model('ChatMsg', chatMsgSchema);
-
-// POST /api/ipfs/chat — store one chat message on IPFS
-app.post('/api/ipfs/chat', auth, async (req, res) => {
-  const { roomId, text, senderName } = req.body;
-  if (!roomId || !text) return res.status(400).json({ error: 'roomId and text required' });
-  try {
-    let cid = null;
-    let url = null;
-    if (ipfs.isPinataConfigured()) {
-      cid = await ipfs.pinChatMessage({
-        roomId, sender: senderName || 'User',
-        senderId: req.userId, text,
-        timestamp: new Date().toISOString(),
-      });
-      url = ipfs.ipfsUrl(cid);
-    }
-    const msg = await ChatMsg.create({
-      roomId, senderId: req.userId,
-      senderName: senderName || 'User', text, cid, ipfsUrl: url,
-    });
-    res.json({ message: msg, cid, ipfsUrl: url });
-  } catch (err) {
-    console.error('IPFS chat error:', err.message);
-    res.status(500).json({ error: 'Failed to store message' });
-  }
-});
-
-// GET /api/ipfs/chat/:roomId — get all messages for a room
-app.get('/api/ipfs/chat/:roomId', auth, async (req, res) => {
-  try {
-    const messages = await ChatMsg.find({ roomId: req.params.roomId })
-      .sort({ timestamp: 1 }).limit(200);
-    res.json({ messages, count: messages.length });
-  } catch { res.status(500).json({ error: 'Failed to fetch messages' }); }
-});
-
-// POST /api/ipfs/chat/:roomId/export — export full chat history to IPFS
-app.post('/api/ipfs/chat/:roomId/export', auth, async (req, res) => {
-  try {
-    const messages = await ChatMsg.find({ roomId: req.params.roomId }).sort({ timestamp: 1 });
-    if (!ipfs.isPinataConfigured()) return res.status(503).json({ error: 'Pinata not configured' });
-    const cid = await ipfs.pinChatHistory(req.params.roomId, messages.map((m) => ({
-      sender: m.senderName, text: m.text, timestamp: m.timestamp,
-    })));
-    const url = ipfs.ipfsUrl(cid);
-    // Save CID to the call record
-    await Call.findOneAndUpdate({ room_id: req.params.roomId }, { chat_cid: cid });
-    res.json({ cid, ipfsUrl: url, messageCount: messages.length });
-  } catch (err) {
-    console.error('Export error:', err.message);
-    res.status(500).json({ error: 'Export failed' });
-  }
-});
-
-// GET /api/ipfs/chat/cid/:cid — fetch chat from IPFS directly
-app.get('/api/ipfs/chat/cid/:cid', async (req, res) => {
-  try {
-    const data = await ipfs.fetchFromIPFS(req.params.cid);
-    res.json(data);
-  } catch { res.status(500).json({ error: 'Failed to fetch from IPFS' }); }
-});
-
-// PUT /api/ipfs/profile — upload profile to IPFS
-app.put('/api/ipfs/profile', auth, async (req, res) => {
-  const { bio, avatar, links } = req.body;
-  try {
-    const user = await User.findById(req.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    let cid = null;
-    let url = null;
-    if (ipfs.isPinataConfigured()) {
-      cid = await ipfs.pinUserProfile({
-        userId:    user._id.toString(),
-        name:      user.name,
-        email:     user.email,
-        bio:       bio || '',
-        avatar:    avatar || null,
-        links:     links || {},
-        updatedAt: new Date().toISOString(),
-      });
-      url = ipfs.ipfsUrl(cid);
-      // Save CID to user
-      user.profile_cid = cid;
-      await user.save();
-    }
-    res.json({ cid, ipfsUrl: url, message: cid ? 'Profile stored on IPFS' : 'Pinata not configured' });
-  } catch (err) {
-    console.error('Profile IPFS error:', err.message);
-    res.status(500).json({ error: 'Failed to store profile' });
-  }
-});
-
-// GET /api/ipfs/profile/:userId — get user profile (from IPFS if available)
-app.get('/api/ipfs/profile/:userId', async (req, res) => {
-  try {
-    const user = await User.findById(req.params.userId).select('name email profile_cid isOnline');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    let ipfsProfile = null;
-    if (user.profile_cid) {
-      try { ipfsProfile = await ipfs.fetchFromIPFS(user.profile_cid); } catch { }
-    }
-    res.json({
-      user: { id: user._id, name: user.name, email: user.email, isOnline: user.isOnline },
-      ipfsProfile,
-      profileCid: user.profile_cid,
-      ipfsUrl: user.profile_cid ? ipfs.ipfsUrl(user.profile_cid) : null,
-    });
-  } catch { res.status(500).json({ error: 'Failed' }); }
-});
-
-// GET /api/ipfs/status — check if Pinata is configured
-app.get('/api/ipfs/status', auth, (req, res) => {
-  res.json({
-    configured: ipfs.isPinataConfigured(),
-    gateway: 'https://gateway.pinata.cloud/ipfs',
-  });
-});
-
 // ─── Rooms ────────────────────────────────────────────────────────────────────
-const rooms = new Map();
-const groupRooms = new Map();
-
 function mockLatency() { return Math.floor(80 + Math.random() * 60); }
 
 async function logCall(room) {
@@ -411,21 +281,17 @@ async function logCall(room) {
       user2_id:     room.users[1]?.userId || null,
       start_time:   new Date(room.startTime),
       duration,
-      avg_latency:  room.latencySamples.length
+      avg_latency: room.latencySamples.length
         ? Math.round(room.latencySamples.reduce((a, b) => a + b, 0) / room.latencySamples.length)
         : null,
     });
-    console.log(`📝 Call logged — room: ${room.id}, duration: ${duration}s`);
   } catch (err) { console.error('Log error:', err.message); }
 }
 
 app.post('/api/rooms', auth, (req, res) => {
   const { password } = req.body;
   const roomId = uuidv4().slice(0, 8).toUpperCase();
-  rooms.set(roomId, {
-    id: roomId, users: [], startTime: null, latencySamples: [],
-    callId: uuidv4(), password: password || null,
-  });
+  rooms.set(roomId, { id: roomId, users: [], startTime: null, latencySamples: [], callId: uuidv4(), password: password || null });
   res.json({ roomId });
 });
 
@@ -435,21 +301,89 @@ app.get('/api/rooms/:roomId', (req, res) => {
   res.json({ roomId: room.id, userCount: room.users.length, full: room.users.length >= 2, hasPassword: !!room.password });
 });
 
+// ─── Push Notification Routes ─────────────────────────────────────────────────
+
+// Save push subscription from browser
+app.post('/api/push/subscribe', auth, async (req, res) => {
+  try {
+    const { userId, subscription } = req.body;
+    if (!userId || !subscription) return res.status(400).json({ error: 'Missing fields' });
+    pushSubscriptions.set(userId.toString(), subscription);
+    await User.findByIdAndUpdate(userId, { pushSubscription: subscription }).catch(() => {});
+    console.log(`🔔 Push subscription saved for user ${userId}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Subscribe error:', err);
+    res.status(500).json({ error: 'Failed to save subscription' });
+  }
+});
+
+// Remove push subscription
+app.post('/api/push/unsubscribe', auth, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    pushSubscriptions.delete(userId?.toString());
+    await User.findByIdAndUpdate(userId, { $unset: { pushSubscription: '' } }).catch(() => {});
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// Send call push notification to a friend
+app.post('/api/push/call', auth, async (req, res) => {
+  try {
+    const { callerId, callerName, receiverId, roomId, callType } = req.body;
+    if (!receiverId || !roomId) return res.status(400).json({ error: 'Missing fields' });
+
+    // Get subscription — check memory first, then MongoDB
+    let subscription = pushSubscriptions.get(receiverId.toString());
+    if (!subscription) {
+      const receiverUser = await User.findById(receiverId).select('pushSubscription').catch(() => null);
+      subscription = receiverUser?.pushSubscription;
+      if (subscription) pushSubscriptions.set(receiverId.toString(), subscription); // cache it
+    }
+
+    if (!subscription) {
+      console.log(`⚠️  No push subscription for user ${receiverId} — socket only`);
+      return res.json({ success: true, method: 'socket-only' });
+    }
+
+    const payload = JSON.stringify({
+      title: `📞 ${callerName} is calling you...`,
+      body: callType === 'group' ? 'Tap to join the group call' : 'Tap to answer',
+      callerName,
+      roomId,
+      callType: callType || 'p2p',
+      icon: '/logo.png',
+    });
+
+    await webpush.sendNotification(subscription, payload);
+    console.log(`📨 Push notification sent to ${receiverId}`);
+    res.json({ success: true, method: 'push' });
+  } catch (err) {
+    console.error('Push call error:', err.message);
+    // Subscription expired — clean it up
+    if (err.statusCode === 410) {
+      pushSubscriptions.delete(req.body.receiverId?.toString());
+      await User.findByIdAndUpdate(req.body.receiverId, { $unset: { pushSubscription: '' } }).catch(() => {});
+    }
+    res.status(500).json({ error: 'Failed to send notification' });
+  }
+});
+
 // ─── Admin Routes ─────────────────────────────────────────────────────────────
 app.get('/api/admin/stats', auth, adminOnly, async (req, res) => {
   try {
     const [totalUsers, totalCalls, allCalls] = await Promise.all([
-      User.countDocuments(),
-      Call.countDocuments(),
-      Call.find().select('avg_latency duration start_time'),
+      User.countDocuments(), Call.countDocuments(), Call.find().select('avg_latency duration start_time'),
     ]);
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const callsToday = allCalls.filter((c) => new Date(c.start_time) >= today).length;
     const totalMinutes = Math.round(allCalls.reduce((a, c) => a + (c.duration || 0), 0) / 60);
     const latencyList = allCalls.filter((c) => c.avg_latency);
     const avgLatency = latencyList.length ? Math.round(latencyList.reduce((a, c) => a + c.avg_latency, 0) / latencyList.length) : null;
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const newUsers7d = await User.countDocuments({ createdAt: { $gte: weekAgo } });
+    const newUsers7d = await User.countDocuments({ createdAt: { $gte: new Date(Date.now() - 7 * 86400000) } });
     res.json({ totalUsers, totalCalls, callsToday, totalMinutes, avgLatency, newUsers7d });
   } catch { res.status(500).json({ error: 'Failed' }); }
 });
@@ -470,8 +404,7 @@ app.get('/api/admin/calls', auth, adminOnly, async (req, res) => {
 
 app.get('/api/admin/rooms', auth, adminOnly, (req, res) => {
   const roomList = Array.from(rooms.values()).map((r) => ({
-    id: r.id, userCount: r.users.length, hasPassword: !!r.password,
-    startTime: r.startTime, callId: r.callId,
+    id: r.id, userCount: r.users.length, hasPassword: !!r.password, startTime: r.startTime, callId: r.callId,
   }));
   res.json({ rooms: roomList });
 });
@@ -503,93 +436,61 @@ app.delete('/api/admin/rooms/:roomId', auth, adminOnly, (req, res) => {
   res.json({ message: 'Room ended' });
 });
 
-app.get('/api/ipfs/status', (req, res) => {
-  res.json({ configured: isPinataConfigured() });
-});
-app.get('/health', (req, res) => res.json({ status: 'ok', rooms: rooms.size, users: onlineUsers.size }));
-
 // ─── IPFS Routes ──────────────────────────────────────────────────────────────
-const { pinJSON, fetchFromIPFS, getIPFSUrl, isPinataConfigured } = require('./ipfs');
+const ipfs = require('./services/ipfs');
 
-// Upload chat history for a room to IPFS
 app.post('/api/ipfs/chat', auth, async (req, res) => {
-  const { roomId, messages } = req.body;
-  if (!roomId || !messages) return res.status(400).json({ error: 'roomId and messages required' });
-  if (!isPinataConfigured()) return res.status(503).json({ error: 'IPFS not configured' });
+  const { roomId, text, senderName } = req.body;
+  if (!roomId || !text) return res.status(400).json({ error: 'roomId and text required' });
   try {
-    const data = {
-      roomId,
-      messages,
-      savedAt: new Date().toISOString(),
-      savedBy: req.userId,
-      version: '1.0',
-    };
-    const cid = await pinJSON(data, `plaxustalk-chat-${roomId}`);
-    // Save CID to call record
-    await Call.findOneAndUpdate({ room_id: roomId }, { chat_cid: cid });
-    res.json({ cid, url: getIPFSUrl(cid) });
-  } catch (err) {
-    console.error('IPFS chat error:', err.message);
-    res.status(500).json({ error: 'Failed to store chat on IPFS' });
-  }
+    let cid = null, url = null;
+    if (ipfs.isPinataConfigured()) {
+      cid = await ipfs.pinChatMessage({ roomId, sender: senderName || 'User', senderId: req.userId, text, timestamp: new Date().toISOString() });
+      url = ipfs.ipfsUrl(cid);
+    }
+    const msg = await ChatMsg.create({ roomId, senderId: req.userId, senderName: senderName || 'User', text, cid, ipfsUrl: url });
+    res.json({ message: msg, cid, ipfsUrl: url });
+  } catch (err) { res.status(500).json({ error: 'Failed to store message' }); }
 });
 
-// Fetch chat history from IPFS by CID
-app.get('/api/ipfs/chat/:cid', auth, async (req, res) => {
+app.get('/api/ipfs/chat/:roomId', auth, async (req, res) => {
   try {
-    const data = await fetchFromIPFS(req.params.cid);
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch from IPFS' });
-  }
+    const messages = await ChatMsg.find({ roomId: req.params.roomId }).sort({ timestamp: 1 }).limit(200);
+    res.json({ messages, count: messages.length });
+  } catch { res.status(500).json({ error: 'Failed' }); }
 });
 
-// Upload user profile to IPFS
-app.post('/api/ipfs/profile', auth, async (req, res) => {
-  const { name, bio, avatar, links } = req.body;
-  if (!isPinataConfigured()) return res.status(503).json({ error: 'IPFS not configured' });
+app.put('/api/ipfs/profile', auth, async (req, res) => {
+  const { bio, avatar, links } = req.body;
   try {
-    const profileData = {
-      name,
-      bio: bio || '',
-      avatar: avatar || null,
-      links: links || {},
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      owner: req.userId,
-      version: '1.0',
-    };
-    const cid = await pinJSON(profileData, `plaxustalk-profile-${req.userId}`);
-    // Save CID to user
-    await User.findByIdAndUpdate(req.userId, { profile_cid: cid });
-    res.json({ cid, url: getIPFSUrl(cid) });
-  } catch (err) {
-    console.error('IPFS profile error:', err.message);
-    res.status(500).json({ error: 'Failed to store profile on IPFS' });
-  }
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    let cid = null, url = null;
+    if (ipfs.isPinataConfigured()) {
+      cid = await ipfs.pinUserProfile({ userId: user._id.toString(), name: user.name, email: user.email, bio: bio || '', avatar: avatar || null, links: links || {}, updatedAt: new Date().toISOString() });
+      url = ipfs.ipfsUrl(cid);
+      user.profile_cid = cid;
+      await user.save();
+    }
+    res.json({ cid, ipfsUrl: url });
+  } catch { res.status(500).json({ error: 'Failed' }); }
 });
 
-// Fetch profile from IPFS
-app.get('/api/ipfs/profile/:cid', async (req, res) => {
+app.get('/api/ipfs/profile/:userId', async (req, res) => {
   try {
-    const data = await fetchFromIPFS(req.params.cid);
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch profile from IPFS' });
-  }
+    const user = await User.findById(req.params.userId).select('name email profile_cid isOnline');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    let ipfsProfile = null;
+    if (user.profile_cid) { try { ipfsProfile = await ipfs.fetchFromIPFS(user.profile_cid); } catch { } }
+    res.json({ user: { id: user._id, name: user.name, email: user.email, isOnline: user.isOnline }, ipfsProfile, profileCid: user.profile_cid, ipfsUrl: user.profile_cid ? ipfs.ipfsUrl(user.profile_cid) : null });
+  } catch { res.status(500).json({ error: 'Failed' }); }
 });
 
-// Get current user's IPFS profile CID
-app.get('/api/ipfs/profile/me', auth, async (req, res) => {
-  try {
-    const user = await User.findById(req.userId).select('profile_cid');
-    if (!user?.profile_cid) return res.json({ cid: null });
-    const data = await fetchFromIPFS(user.profile_cid);
-    res.json({ cid: user.profile_cid, url: getIPFSUrl(user.profile_cid), profile: data });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed' });
-  }
+app.get('/api/ipfs/status', auth, (req, res) => {
+  res.json({ configured: ipfs.isPinataConfigured(), gateway: 'https://gateway.pinata.cloud/ipfs' });
 });
+
+app.get('/health', (req, res) => res.json({ status: 'ok', rooms: rooms.size, onlineUsers: onlineUsers.size }));
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
@@ -597,13 +498,57 @@ io.on('connection', (socket) => {
   let currentRoomId = null;
   let currentUserId = null;
 
-  socket.on('user-online', async ({ userId }) => {
+  // ── Register user so friends can call them ──────────────────────────────────
+  socket.on('register-user', async ({ userId }) => {
     if (!userId) return;
-    currentUserId = userId;
-    onlineUsers.set(userId, socket.id);
+    currentUserId = userId.toString();
+    onlineUsers.set(currentUserId, socket.id);
+    console.log(`👤 User ${currentUserId} registered (${socket.id})`);
     try { await User.findByIdAndUpdate(userId, { isOnline: true, lastSeen: new Date() }); } catch { }
   });
 
+  // Keep backward compat with old 'user-online' event
+  socket.on('user-online', async ({ userId }) => {
+    if (!userId) return;
+    currentUserId = userId.toString();
+    onlineUsers.set(currentUserId, socket.id);
+    try { await User.findByIdAndUpdate(userId, { isOnline: true, lastSeen: new Date() }); } catch { }
+  });
+
+  // ── Call signaling ──────────────────────────────────────────────────────────
+
+  // Caller presses "Call" button
+  socket.on('call-friend', ({ callerId, callerName, receiverId, roomId, callType }) => {
+    const receiverSocketId = onlineUsers.get(receiverId?.toString());
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit('incoming-call', { callerName, callerId, roomId, callType: callType || 'p2p' });
+      console.log(`📞 Call from ${callerName} to socket ${receiverSocketId} room ${roomId}`);
+    } else {
+      console.log(`⚠️  Receiver ${receiverId} not online — push notification only`);
+    }
+  });
+
+  // Receiver accepted
+  socket.on('call-accepted', ({ roomId, callerId }) => {
+    const callerSocketId = onlineUsers.get(callerId?.toString());
+    if (callerSocketId) io.to(callerSocketId).emit('call-accepted', { roomId });
+    console.log(`✅ Call accepted for room ${roomId}`);
+  });
+
+  // Receiver declined
+  socket.on('call-declined', ({ roomId, callerId }) => {
+    const callerSocketId = onlineUsers.get(callerId?.toString());
+    if (callerSocketId) io.to(callerSocketId).emit('call-declined', { roomId });
+    console.log(`❌ Call declined for room ${roomId}`);
+  });
+
+  // Caller cancelled before answer
+  socket.on('call-cancelled', ({ receiverId }) => {
+    const receiverSocketId = onlineUsers.get(receiverId?.toString());
+    if (receiverSocketId) io.to(receiverSocketId).emit('call-cancelled');
+  });
+
+  // ── P2P Room ────────────────────────────────────────────────────────────────
   socket.on('join-room', ({ roomId, wallet, userId, userName, password }) => {
     const id = roomId.toUpperCase();
     let room = rooms.get(id);
@@ -645,98 +590,71 @@ io.on('connection', (socket) => {
   });
 
   socket.on('chat-message', async ({ roomId, message }) => {
-    // Relay to peer immediately
     socket.to(roomId.toUpperCase()).emit('chat-message', message);
-    // Store on IPFS in background
-    if (ipfs.isPinataConfigured() && message.text) {
+    if (ipfs.isPinataConfigured() && message?.text) {
       try {
-        const cid = await ipfs.pinChatMessage({
-          roomId, sender: message.sender,
-          senderId: message.senderId, text: message.text,
-          timestamp: new Date().toISOString(),
-        });
-        // Notify sender of CID
+        const cid = await ipfs.pinChatMessage({ roomId, sender: message.sender, senderId: message.senderId, text: message.text, timestamp: new Date().toISOString() });
         socket.emit('message-stored', { messageId: message.id, cid, ipfsUrl: ipfs.ipfsUrl(cid) });
-      } catch (e) { /* IPFS storage is non-blocking */ }
+      } catch { }
     }
   });
 
   socket.on('reaction',   ({ roomId, emoji })  => socket.to(roomId.toUpperCase()).emit('reaction', { emoji }));
   socket.on('raise-hand', ({ roomId, raised }) => socket.to(roomId.toUpperCase()).emit('raise-hand', { raised }));
+  socket.on('admit-peer', ({ roomId, socketId }) => io.to(socketId).emit('waiting-admitted'));
+  socket.on('reject-peer', ({ roomId, socketId }) => io.to(socketId).emit('waiting-rejected'));
 
-  socket.on('admit-peer',   ({ roomId, socketId }) => io.to(socketId).emit('waiting-admitted'));
-  socket.on('reject-peer',  ({ roomId, socketId }) => io.to(socketId).emit('waiting-rejected'));
-// Group join
-socket.on('group-join', ({ roomId, userName }) => {
-  const id = roomId?.toUpperCase();
-  if (!id) return;
- 
-  if (!groupRooms.has(id)) groupRooms.set(id, []);
-  const room = groupRooms.get(id);
- 
-  // FIX 11 — Remove duplicate socket if same user rejoins
-  const existingIdx = room.findIndex(p => p.socketId === socket.id);
-  if (existingIdx !== -1) {
-    room.splice(existingIdx, 1);
-    console.log(`🔄 Removed duplicate entry for ${socket.id} in group room ${id}`);
-  }
- 
-  if (room.length >= 8) {
-    socket.emit('group-room-full');
-    return;
-  }
- 
-  // Send existing peers to the new joiner
-  socket.emit('group-peers', {
-    peers: room.map(p => ({ socketId: p.socketId, name: p.userName }))
+  // ── Group Room ──────────────────────────────────────────────────────────────
+  socket.on('group-join', ({ roomId, userName }) => {
+    const id = roomId?.toUpperCase();
+    if (!id) return;
+    if (!groupRooms.has(id)) groupRooms.set(id, []);
+    const room = groupRooms.get(id);
+    const existingIdx = room.findIndex(p => p.socketId === socket.id);
+    if (existingIdx !== -1) room.splice(existingIdx, 1);
+    if (room.length >= 8) { socket.emit('group-room-full'); return; }
+    socket.emit('group-peers', { peers: room.map(p => ({ socketId: p.socketId, name: p.userName })) });
+    room.push({ socketId: socket.id, userName: userName || 'Guest' });
+    socket.join(id);
+    socket.to(id).emit('group-peer-joined', { socketId: socket.id, name: userName || 'Guest' });
+    console.log(`👥 ${socket.id} joined group ${id} (${room.length}/8)`);
   });
- 
-  // Add new peer
-  room.push({ socketId: socket.id, userName: userName || 'Guest' });
-  socket.join(id);
- 
-  // Notify existing peers
-  socket.to(id).emit('group-peer-joined', {
-    socketId: socket.id,
-    name: userName || 'Guest'
-  });
- 
-  console.log(`👥 ${socket.id} (${userName}) joined group room ${id} (${room.length}/8)`);
-});
- 
-socket.on('group-offer', ({ roomId, to, offer }) => {
-  socket.to(to).emit('group-offer', { from: socket.id, offer });
-});
- 
-socket.on('group-answer', ({ roomId, to, answer }) => {
-  socket.to(to).emit('group-answer', { from: socket.id, answer });
-});
- 
-socket.on('group-ice', ({ roomId, to, candidate }) => {
-  socket.to(to).emit('group-ice', { from: socket.id, candidate });
-});
-socket.on('group-peer-muted', ({ roomId, isMuted }) => {
-  const id = roomId?.toUpperCase();
-  if (!id) return;
-  socket.to(id).emit('group-peer-muted', { socketId: socket.id, isMuted });
-});
- 
-socket.on('group-leave', ({ roomId }) => {
-  const id = roomId?.toUpperCase();
-  if (!id || !groupRooms.has(id)) return;
-  const room = groupRooms.get(id);
-  groupRooms.set(id, room.filter(p => p.socketId !== socket.id));
-  socket.to(id).emit('group-peer-left', { socketId: socket.id });
-  if (groupRooms.get(id).length === 0) groupRooms.delete(id);
-  console.log(`👋 ${socket.id} left group room ${id}`);
-});
 
+  socket.on('group-offer',       ({ roomId, to, offer })     => socket.to(to).emit('group-offer', { from: socket.id, offer }));
+  socket.on('group-answer',      ({ roomId, to, answer })    => socket.to(to).emit('group-answer', { from: socket.id, answer }));
+  socket.on('group-ice',         ({ roomId, to, candidate }) => socket.to(to).emit('group-ice', { from: socket.id, candidate }));
+  socket.on('group-peer-muted',  ({ roomId, isMuted })       => socket.to(roomId?.toUpperCase()).emit('group-peer-muted', { socketId: socket.id, isMuted }));
+
+  socket.on('group-leave', ({ roomId }) => {
+    const id = roomId?.toUpperCase();
+    if (!id || !groupRooms.has(id)) return;
+    const room = groupRooms.get(id);
+    groupRooms.set(id, room.filter(p => p.socketId !== socket.id));
+    socket.to(id).emit('group-peer-left', { socketId: socket.id });
+    if (groupRooms.get(id).length === 0) groupRooms.delete(id);
+  });
+
+  // ── Disconnect ──────────────────────────────────────────────────────────────
   socket.on('disconnect', async () => {
     console.log(`❌ Disconnected: ${socket.id}`);
+
+    // Remove from online users
     if (currentUserId) {
       onlineUsers.delete(currentUserId);
       try { await User.findByIdAndUpdate(currentUserId, { isOnline: false, lastSeen: new Date() }); } catch { }
     }
+
+    // Clean up group rooms
+    groupRooms.forEach((peers, roomId) => {
+      const wasMember = peers.find(p => p.socketId === socket.id);
+      if (wasMember) {
+        groupRooms.set(roomId, peers.filter(p => p.socketId !== socket.id));
+        socket.to(roomId).emit('group-peer-left', { socketId: socket.id });
+        if (groupRooms.get(roomId).length === 0) groupRooms.delete(roomId);
+      }
+    });
+
+    // Clean up P2P room
     if (!currentRoomId) return;
     const room = rooms.get(currentRoomId);
     if (!room) return;
@@ -746,16 +664,6 @@ socket.on('group-leave', ({ roomId }) => {
     io.to(currentRoomId).emit('peer-left', { userCount: room.users.length });
     if (room.users.length === 0) { rooms.delete(currentRoomId); console.log(`🗑️  Room ${currentRoomId} deleted`); }
   });
-  groupRooms.forEach((peers, roomId) => {
-  // FIX 11 — Clean up group room on disconnect
-  const wasMember = peers.find(p => p.socketId === socket.id);
-  if (wasMember) {
-    groupRooms.set(roomId, peers.filter(p => p.socketId !== socket.id));
-    socket.to(roomId).emit('group-peer-left', { socketId: socket.id });
-    if (groupRooms.get(roomId).length === 0) groupRooms.delete(roomId);
-    console.log(`🔌 Cleaned up ${socket.id} from group room ${roomId} on disconnect`);
-  }
-});
 });
 
 const PORT = process.env.PORT || 3001;
