@@ -94,7 +94,7 @@ export default function AdminPage() {
               <div className="absolute inset-0 border-2 border-accent rotate-45" />
               <div className="absolute inset-[4px] bg-accent rotate-45" />
             </div>
-            <span className="font-display text-accent text-base tracking-widest">PLAXUSTALK</span>
+            <span className="font-display text-accent text-base tracking-widest">PLEXUSTALK</span>
           </Link>
           <div className="h-4 w-px bg-border" />
           <span className="font-display text-xs text-warn tracking-widest border border-warn/30 px-2 py-1">ADMIN</span>

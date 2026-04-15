@@ -36,7 +36,7 @@ export default function CallHistoryPage() {
             <div className="absolute inset-0 border-2 border-accent rotate-45" />
             <div className="absolute inset-[4px] bg-accent rotate-45" />
           </div>
-          <span className="font-display text-accent text-base tracking-widest">PLAXUSTALK</span>
+          <span className="font-display text-accent text-base tracking-widest">PLEXUSTALK</span>
         </Link>
         <Link to="/" className="font-display text-xs text-muted hover:text-white tracking-widest uppercase transition-colors">← HOME</Link>
       </header>
