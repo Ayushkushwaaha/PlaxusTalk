@@ -31,7 +31,9 @@ const io = new Server(httpServer, {
   cors: {
     origin: [
       process.env.FRONTEND_URL || '*',
+      'https://plexustalks.vercel.app',
       'https://plaxustalks.vercel.app',
+      'https://plexustalks-git-main-ayushkushwaahas-projects.vercel.app',
       'https://plaxustalks-git-main-ayushkushwaahas-projects.vercel.app',
       'http://localhost:5173',
     ],
@@ -43,7 +45,9 @@ const io = new Server(httpServer, {
 app.use(cors({
   origin: [
     process.env.FRONTEND_URL || '*',
+    'https://plexustalks.vercel.app',
     'https://plaxustalks.vercel.app',
+    'https://plexustalks-git-main-ayushkushwaahas-projects.vercel.app',
     'https://plaxustalks-git-main-ayushkushwaahas-projects.vercel.app',
     'http://localhost:5173',
   ],
